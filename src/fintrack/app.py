@@ -15,7 +15,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
-from . import items, reports, sync
+from . import insights, items, reports, rules, sync
 from .config import Settings
 from .db import connect, open_db
 from .edits import InvalidEdit, UnknownTransaction, edit_transaction
@@ -47,6 +47,23 @@ class TransactionEdit(BaseModel):
     # Only the fields sent are changed; sending null reverts that field.
     category_id: str | None = None
     note: str | None = None
+
+
+class RuleCondition(BaseModel):
+    match_field: Literal["merchant", "description"]
+    pattern: str
+    direction: Literal["inflow", "outflow"] | None = None  # null: either way
+
+
+class RuleIn(RuleCondition):
+    category_id: str
+
+
+class RuleEdit(BaseModel):
+    # Only the fields sent are changed; a null direction means either way.
+    pattern: str | None = None
+    direction: Literal["inflow", "outflow"] | None = None
+    category_id: str | None = None
 
 
 def get_db(request: Request) -> Iterator[sqlite3.Connection]:
@@ -103,6 +120,8 @@ def create_app(
     app.add_exception_handler(PlaidError, error(502))
     app.add_exception_handler(UnknownTransaction, error(404))
     app.add_exception_handler(InvalidEdit, error(422))
+    app.add_exception_handler(rules.UnknownRule, error(404))
+    app.add_exception_handler(rules.InvalidRule, error(422))
 
     @app.exception_handler(items.UnknownItem)
     async def unknown_item(request: Request, exc: items.UnknownItem) -> JSONResponse:
@@ -208,20 +227,74 @@ def create_app(
         account_id: int | None = None,
         category_id: str | None = None,
         flow_type: Literal["income", "expense", "transfer"] | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
     ) -> dict[str, Any]:
         cursor = (before, before_id) if before is not None and before_id is not None else None
         return reports.activity(
-            db, limit=limit, before=cursor, query=q, account_id=account_id, category_id=category_id, flow_type=flow_type
+            db,
+            limit=limit,
+            before=cursor,
+            query=q,
+            account_id=account_id,
+            category_id=category_id,
+            flow_type=flow_type,
+            date_from=date_from,
+            date_to=date_to,
         )
 
     @app.get("/api/categories")
     def list_categories(db: Db) -> list[dict[str, Any]]:
         return reports.categories(db)
 
+    # Edits and rule changes re-derive every category: a rule re-files history, and an
+    # edit can make (or unmake) one half of a transfer pair.
     @app.patch("/api/transactions/{transaction_id}")
     def edit(transaction_id: int, body: TransactionEdit, db: Db) -> dict[str, Any] | None:
         edit_transaction(db, transaction_id, {field: getattr(body, field) for field in body.model_fields_set})
+        enrich_all(db)
         return reports.ledger_row(db, transaction_id)
+
+    @app.get("/api/rules")
+    def list_rules(db: Db) -> list[dict[str, Any]]:
+        return rules.list_rules(db)
+
+    @app.post("/api/rules")
+    def save_rule(body: RuleIn, db: Db) -> dict[str, Any]:
+        rule_id = rules.save_rule(db, body.match_field, body.pattern, body.direction, body.category_id)
+        enrich_all(db)
+        return next(rule for rule in rules.list_rules(db) if rule["id"] == rule_id)
+
+    @app.patch("/api/rules/{rule_id}")
+    def edit_rule(rule_id: int, body: RuleEdit, db: Db) -> dict[str, Any]:
+        rules.update_rule(db, rule_id, {field: getattr(body, field) for field in body.model_fields_set})
+        enrich_all(db)
+        return next(rule for rule in rules.list_rules(db) if rule["id"] == rule_id)
+
+    @app.delete("/api/rules/{rule_id}", status_code=204)
+    def delete_rule(rule_id: int, db: Db) -> Response:
+        rules.delete_rule(db, rule_id)
+        enrich_all(db)
+        return Response(status_code=204)
+
+    # A POST so the keyword stays out of the access log, which records query strings.
+    @app.post("/api/rules/preview")
+    def preview_rule(body: RuleCondition, db: Db) -> dict[str, int]:
+        return {"matches": rules.count_matches(db, body.match_field, body.pattern, body.direction)}
+
+    @app.get("/api/insights/trend")
+    def insights_trend(db: Db, granularity: Literal["day", "week", "month", "year"] = "month") -> dict[str, Any]:
+        return insights.trend(db, granularity, date.today())
+
+    @app.get("/api/insights/breakdown")
+    def insights_breakdown(
+        db: Db,
+        granularity: Literal["day", "week", "month", "year"] = "month",
+        start: date | None = None,
+        compare: Literal["previous", "year", "average"] = "previous",
+    ) -> dict[str, Any]:
+        today = date.today()
+        return insights.breakdown(db, granularity, start or today, compare, today)
 
     # Everything that isn't the API is the React app: real files from the build, otherwise
     # index.html so client-side routes like /activity load too.

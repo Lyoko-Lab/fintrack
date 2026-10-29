@@ -77,7 +77,8 @@ def run_sync(
             run_id = conn.execute(
                 "INSERT INTO sync_runs (triggered_by, started_at) VALUES (?, ?)", (triggered_by, utcnow())
             ).lastrowid
-        items = conn.execute("SELECT * FROM items ORDER BY id").fetchall()
+        # Only Plaid logins sync; other providers (the demo ledger, later CSV imports) are written directly.
+        items = conn.execute("SELECT * FROM items WHERE provider = 'plaid' ORDER BY id").fetchall()
         if item_ids is not None:
             wanted = set(item_ids)
             items = [item for item in items if item["id"] in wanted]

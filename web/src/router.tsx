@@ -1,10 +1,12 @@
-// Three fixed pages don't need a routing library: the path lives in history, and
-// components re-render on popstate.
+// A handful of fixed pages don't need a routing library: the path lives in history, and
+// components re-render on popstate. A page may read its starting filters from the query string.
 import { useSyncExternalStore, type MouseEvent, type ReactNode } from "react";
 
 export const ROUTES = {
   overview: "/",
   activity: "/activity",
+  insights: "/insights",
+  rules: "/rules",
   accounts: "/accounts",
 } as const;
 
@@ -20,8 +22,10 @@ export function useRoute(): Route {
   return (Object.keys(ROUTES) as Route[]).find((route) => ROUTES[route] === path) ?? "overview";
 }
 
-export function navigate(route: Route): void {
-  if (window.location.pathname !== ROUTES[route]) window.history.pushState(null, "", ROUTES[route]);
+export function navigate(route: Route, params: Record<string, string | undefined> = {}): void {
+  const search = new URLSearchParams(Object.entries(params).filter((entry): entry is [string, string] => Boolean(entry[1])));
+  const url = ROUTES[route] + (search.size ? `?${search}` : "");
+  if (window.location.pathname + window.location.search !== url) window.history.pushState(null, "", url);
   window.dispatchEvent(new PopStateEvent("popstate"));
   window.scrollTo(0, 0);
 }

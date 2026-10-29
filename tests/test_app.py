@@ -73,6 +73,37 @@ def test_editing_a_transaction_through_the_api(settings: Settings, plaid: FakePl
     assert api.patch("/api/transactions/9999", json={"note": "x"}).status_code == 404
 
 
+def test_rules_through_the_api(settings: Settings, plaid: FakePlaid, db: sqlite3.Connection):
+    card = add_account(db, "Card", "credit", institution="Chase")
+    add_txn(db, card, -1549, "2026-10-07", "NETFLIX.COM", merchant="Netflix", pfc="ENTERTAINMENT_TV_AND_MOVIES")
+    api = api_for(settings, plaid.client)
+
+    assert api.post("/api/rules/preview", json={"match_field": "merchant", "pattern": "netflix"}).json() == {"matches": 1}
+    created = api.post("/api/rules", json={"match_field": "merchant", "pattern": "Netflix", "category_id": "bills.subscriptions"})
+    assert created.status_code == 200
+    rule = created.json()
+    assert (rule["category_name"], rule["direction"], rule["transaction_count"]) == ("订阅会员", None, 1)
+    row = api.get("/api/activity").json()["items"][0]
+    assert (row["category_id"], row["category_rule"], row["user_rule_pattern"]) == ("bills.subscriptions", "user_rule", "Netflix")
+
+    changed = api.patch(f"/api/rules/{rule['id']}", json={"category_id": "entertainment"}).json()
+    assert changed["category_id"] == "entertainment"
+    assert api.post("/api/rules", json={"match_field": "merchant", "pattern": " ", "category_id": "entertainment"}).status_code == 422
+    assert api.delete(f"/api/rules/{rule['id']}").status_code == 204
+    assert api.get("/api/rules").json() == []
+    assert api.delete(f"/api/rules/{rule['id']}").status_code == 404
+
+
+def test_insights_endpoints(settings: Settings, plaid: FakePlaid):
+    api = api_for(settings, plaid.client)
+
+    trend = api.get("/api/insights/trend", params={"granularity": "week"}).json()
+    assert trend["granularity"] == "week" and len(trend["periods"]) == 26
+    breakdown = api.get("/api/insights/breakdown", params={"granularity": "month", "compare": "average"}).json()
+    assert len(breakdown["comparison_periods"]) == 3
+    assert api.get("/api/insights/breakdown", params={"compare": "sideways"}).status_code == 422
+
+
 def test_overview_and_categories_endpoints(settings: Settings, plaid: FakePlaid):
     api = api_for(settings, plaid.client)
 

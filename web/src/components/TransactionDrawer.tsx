@@ -1,13 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { api, type LedgerRow, type TransactionEdit } from "../api";
+import { api, type Direction, type LedgerRow, type MatchField, type RuleCondition, type TransactionEdit } from "../api";
 import { dayHeading, money, shortDay } from "../format";
+import { invalidateLedger } from "../queries";
 import { CategorySelect } from "./CategorySelect";
+import { MATCH_LABELS, RuleFields } from "./RuleFields";
 import { accountLabel } from "./TransactionList";
 
 /** Why the automatic category was chosen (enrich.py's rule codes). */
 function explain(row: LedgerRow): string {
   switch (row.category_rule) {
+    case "user_rule":
+      return `按你的规则「${MATCH_LABELS[row.user_rule_field ?? "description"]} ${row.user_rule_pattern ?? ""}」归类。`;
     case "account":
       return "贷款、投资等非现金账户上的交易，不计入收支。";
     case "p2p":
@@ -33,19 +37,65 @@ function explain(row: LedgerRow): string {
   }
 }
 
+/** A starting keyword from the bank's description: its first few words, minus numbers and reference codes. */
+function keywordFrom(row: LedgerRow): string {
+  const words = (row.description ?? row.original_description ?? "").split(/\s+/).filter((word) => word && !/\d/.test(word));
+  return words.slice(0, 3).join(" ");
+}
+
 export function TransactionDrawer({ row, onClose }: { row: LedgerRow; onClose(): void }) {
   const queryClient = useQueryClient();
   const categories = useQuery({ queryKey: ["categories"], queryFn: api.categories, staleTime: Infinity });
   const [categoryId, setCategoryId] = useState(row.category_id ?? "");
   const [note, setNote] = useState(row.note ?? "");
+  const [applyRule, setApplyRule] = useState(false);
+  const [rule, setRule] = useState<RuleCondition>({
+    match_field: row.merchant_name ? "merchant" : "description",
+    pattern: row.merchant_name ?? keywordFrom(row),
+    direction: null,
+  });
+  const [directionChosen, setDirectionChosen] = useState(false);
   const closeButton = useRef<HTMLButtonElement>(null);
 
+  // Refunds belong with their purchases, so spending rules default to both directions;
+  // income and transfer rules default to the direction of this transaction.
+  const kind = categories.data?.find((category) => category.id === categoryId)?.kind;
+  const ownDirection: Direction = row.amount_cents > 0 ? "inflow" : "outflow";
+  const condition: RuleCondition = directionChosen ? rule : { ...rule, direction: kind && kind !== "expense" ? ownDirection : null };
+  const onRuleChange = (next: RuleCondition) => {
+    if (next.direction !== condition.direction) setDirectionChosen(true);
+    const suggestion = (field: MatchField) => (field === "merchant" ? (row.merchant_name ?? "") : keywordFrom(row));
+    setRule(next.match_field === rule.match_field ? next : { ...next, pattern: suggestion(next.match_field) });
+  };
+
+  const changes: TransactionEdit = {};
+  if (categoryId && categoryId !== row.category_id) changes.category_id = categoryId;
+  if (note.trim() !== (row.note ?? "")) changes.note = note.trim() || null;
+  const ruleReady = applyRule && Boolean(categoryId) && condition.pattern.trim() !== "";
+
   const save = useMutation({
-    mutationFn: (changes: TransactionEdit) => api.editTransaction(row.id, changes),
+    mutationFn: async () => {
+      if (!ruleReady) {
+        await api.editTransaction(row.id, changes);
+        return;
+      }
+      await api.saveRule({ ...condition, category_id: categoryId });
+      // From now on the rule decides this transaction, so a category set on it by hand gives way.
+      const rest: TransactionEdit = {};
+      if (row.category_edited) rest.category_id = null;
+      if ("note" in changes) rest.note = changes.note;
+      if (Object.keys(rest).length > 0) await api.editTransaction(row.id, rest);
+    },
     onSuccess: () => {
       // A new category can move money between income, spending and transfers.
-      void queryClient.invalidateQueries({ queryKey: ["activity"] });
-      void queryClient.invalidateQueries({ queryKey: ["overview"] });
+      void invalidateLedger(queryClient);
+      onClose();
+    },
+  });
+  const revert = useMutation({
+    mutationFn: () => api.editTransaction(row.id, { category_id: null }),
+    onSuccess: () => {
+      void invalidateLedger(queryClient);
       onClose();
     },
   });
@@ -57,15 +107,12 @@ export function TransactionDrawer({ row, onClose }: { row: LedgerRow; onClose():
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const changes: TransactionEdit = {};
-  if (categoryId && categoryId !== row.category_id) changes.category_id = categoryId;
-  if (note.trim() !== (row.note ?? "")) changes.note = note.trim() || null;
-  const dirty = Object.keys(changes).length > 0;
-
+  const canSave = ruleReady || Object.keys(changes).length > 0;
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (dirty) save.mutate(changes);
+    if (canSave) save.mutate();
   };
+  const busy = save.isPending || revert.isPending;
 
   return (
     <div className="drawer-backdrop" onClick={onClose}>
@@ -112,18 +159,31 @@ export function TransactionDrawer({ row, onClose }: { row: LedgerRow; onClose():
           />
           <p className="hint">{row.category_edited ? "这是你手动设置的分类。" : `自动分类：${explain(row)}`}</p>
 
+          <div className="rule-option">
+            <label className="checkbox">
+              <input type="checkbox" checked={applyRule} onChange={(event) => setApplyRule(event.target.checked)} />
+              以后同样的交易也归入这个分类
+            </label>
+            {applyRule && (
+              <>
+                <RuleFields value={condition} onChange={onRuleChange} />
+                <p className="hint">会新建一条规则，历史交易也会重新归类；单独改过分类的交易不受影响。</p>
+              </>
+            )}
+          </div>
+
           <label htmlFor="drawer-note">备注</label>
           <textarea id="drawer-note" rows={2} value={note} onChange={(event) => setNote(event.target.value)} />
 
-          {save.error && <p className="error">{save.error.message}</p>}
+          {(save.error ?? revert.error) && <p className="error">{(save.error ?? revert.error)?.message}</p>}
           <div className="drawer-actions">
             {row.category_edited ? (
-              <button type="button" disabled={save.isPending} onClick={() => save.mutate({ category_id: null })}>
+              <button type="button" disabled={busy} onClick={() => revert.mutate()}>
                 恢复自动分类
               </button>
             ) : null}
-            <button type="submit" className="primary" disabled={!dirty || save.isPending}>
-              {save.isPending ? "保存中…" : "保存"}
+            <button type="submit" className="primary" disabled={!canSave || busy}>
+              {save.isPending ? "保存中…" : ruleReady ? "保存并应用规则" : "保存"}
             </button>
           </div>
         </form>

@@ -3,6 +3,10 @@
 
 export type FlowType = "income" | "expense" | "transfer";
 export type ItemStatus = "active" | "login_required" | "error";
+export type Granularity = "day" | "week" | "month" | "year";
+export type CompareMode = "previous" | "year" | "average";
+export type MatchField = "merchant" | "description";
+export type Direction = "inflow" | "outflow";
 
 export interface Item {
   id: number;
@@ -71,6 +75,8 @@ export interface LedgerRow {
   pending: number;
   amount_cents: number;
   display_name: string | null;
+  merchant_name: string | null;
+  description: string | null;
   original_description: string | null;
   logo_url: string | null;
   pfc_detailed: string | null;
@@ -85,6 +91,9 @@ export interface LedgerRow {
   flow_type: FlowType | null;
   category_edited: number;
   category_rule: string | null;
+  user_rule_id: number | null;
+  user_rule_field: MatchField | null;
+  user_rule_pattern: string | null;
   transfer_peer_id: number | null;
   peer_account_name: string | null;
   peer_account_mask: string | null;
@@ -106,6 +115,68 @@ export interface ActivityFilters {
   account_id?: number;
   category_id?: string;
   flow_type?: FlowType;
+  date_from?: string;
+  date_to?: string;
+}
+
+export interface FlowTotals {
+  income: number;
+  spending: number;
+  net: number;
+}
+
+export interface TrendPeriod extends Period, FlowTotals {
+  complete: boolean; // false for the period still running, which ends today
+}
+
+export interface Trend {
+  granularity: Granularity;
+  today: string;
+  periods: TrendPeriod[];
+}
+
+export interface CategoryAmount {
+  id: string;
+  name: string;
+  current: number; // spending for expense categories, income for income ones
+  comparison: number;
+}
+
+export interface CategoryGroup extends CategoryAmount {
+  children: CategoryAmount[]; // empty when the category has no subcategories
+}
+
+export interface Breakdown {
+  granularity: Granularity;
+  comparison: CompareMode;
+  period: Period & { complete: boolean };
+  comparison_periods: Period[];
+  totals: { current: FlowTotals; comparison: FlowTotals };
+  spending: CategoryGroup[];
+  income: CategoryGroup[];
+  featured: string[]; // the past year's biggest spending groups, in order: the donut gives them fixed colors
+}
+
+export interface RuleCondition {
+  match_field: MatchField;
+  pattern: string;
+  direction: Direction | null; // null: money moving either way
+}
+
+export interface Rule extends RuleCondition {
+  id: number;
+  category_id: string;
+  category_name: string;
+  flow_type: FlowType;
+  transaction_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RuleChanges {
+  pattern?: string;
+  direction?: Direction | null;
+  category_id?: string;
 }
 
 export interface Category {
@@ -143,6 +214,7 @@ function query(params: Record<string, string | number | null | undefined>): stri
 
 const post = <T>(path: string, body?: unknown) =>
   request<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
+const patch = <T>(path: string, body: unknown) => request<T>(path, { method: "PATCH", body: JSON.stringify(body) });
 
 export const api = {
   status: () => request<Status>("/api/status"),
@@ -151,8 +223,16 @@ export const api = {
   categories: () => request<Category[]>("/api/categories"),
   activity: (filters: ActivityFilters, cursor: Cursor | null, limit = 50) =>
     request<ActivityPage>(`/api/activity${query({ ...filters, ...cursor, limit })}`),
-  editTransaction: (id: number, changes: TransactionEdit) =>
-    request<LedgerRow>(`/api/transactions/${id}`, { method: "PATCH", body: JSON.stringify(changes) }),
+  editTransaction: (id: number, changes: TransactionEdit) => patch<LedgerRow>(`/api/transactions/${id}`, changes),
+  rules: () => request<Rule[]>("/api/rules"),
+  saveRule: (rule: RuleCondition & { category_id: string }) => post<Rule>("/api/rules", rule),
+  editRule: (id: number, changes: RuleChanges) => patch<Rule>(`/api/rules/${id}`, changes),
+  deleteRule: (id: number) => request<null>(`/api/rules/${id}`, { method: "DELETE" }),
+  // A POST, so what the user types stays out of the server's access log.
+  previewRule: (condition: RuleCondition) => post<{ matches: number }>("/api/rules/preview", condition),
+  trend: (granularity: Granularity) => request<Trend>(`/api/insights/trend${query({ granularity })}`),
+  breakdown: (granularity: Granularity, start: string | null, compare: CompareMode) =>
+    request<Breakdown>(`/api/insights/breakdown${query({ granularity, start, compare })}`),
   startSync: () => post<{ started: boolean }>("/api/sync"),
   linkToken: (itemId?: number) => post<{ link_token: string }>("/api/link/token", { item_id: itemId ?? null }),
   exchange: (publicToken: string, institutionId: string | null, institutionName: string | null) =>

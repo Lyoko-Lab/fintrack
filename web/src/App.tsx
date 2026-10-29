@@ -5,13 +5,18 @@ import { TransactionDrawer } from "./components/TransactionDrawer";
 import { whenLabel } from "./format";
 import { AccountsPage } from "./pages/Accounts";
 import { ActivityPage } from "./pages/Activity";
+import { InsightsPage } from "./pages/Insights";
 import { OverviewPage } from "./pages/Overview";
+import { RulesPage } from "./pages/Rules";
+import { invalidateLedger } from "./queries";
 import { Link, useRoute, type Route } from "./router";
 import { statusRefetchInterval } from "./syncPolling";
 
 const NAV: { route: Route; label: string }[] = [
   { route: "overview", label: "总览" },
   { route: "activity", label: "交易流" },
+  { route: "insights", label: "分析" },
+  { route: "rules", label: "规则" },
   { route: "accounts", label: "账户" },
 ];
 
@@ -32,11 +37,7 @@ export function App() {
   const seenRun = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     if (!status.isSuccess) return;
-    if (seenRun.current !== undefined && seenRun.current !== runKey) {
-      void queryClient.invalidateQueries({
-        predicate: (query) => !["status", "categories"].includes(String(query.queryKey[0])),
-      });
-    }
+    if (seenRun.current !== undefined && seenRun.current !== runKey) void invalidateLedger(queryClient);
     seenRun.current = runKey;
   }, [runKey, status.isSuccess, queryClient]);
 
@@ -69,6 +70,8 @@ export function App() {
         {status.error && <p className="notice error">连不上 Fintrack 服务：{status.error.message}</p>}
         {route === "overview" && <OverviewPage status={status.data} onSelect={setSelected} />}
         {route === "activity" && <ActivityPage onSelect={setSelected} />}
+        {route === "insights" && <InsightsPage />}
+        {route === "rules" && <RulesPage />}
         {route === "accounts" && <AccountsPage status={status.data} />}
       </main>
 

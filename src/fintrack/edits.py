@@ -9,6 +9,7 @@ from __future__ import annotations
 import sqlite3
 
 from .db import transaction, utcnow
+from .reports import is_assignable
 
 EDITABLE_FIELDS = ("category_id", "note")
 
@@ -29,16 +30,8 @@ def edit_transaction(conn: sqlite3.Connection, transaction_id: int, changes: dic
     with transaction(conn):
         if conn.execute("SELECT 1 FROM transactions WHERE id = ? AND removed_at IS NULL", (transaction_id,)).fetchone() is None:
             raise UnknownTransaction(transaction_id)
-        if changes.get("category_id") is not None:
-            assignable = conn.execute(
-                """
-                SELECT NOT EXISTS (SELECT 1 FROM categories k WHERE k.parent_id = c.id)
-                FROM categories c WHERE c.id = ?
-                """,
-                (changes["category_id"],),
-            ).fetchone()
-            if not assignable or not assignable[0]:
-                raise InvalidEdit(f"{changes['category_id']!r} is not an assignable category")
+        if changes.get("category_id") is not None and not is_assignable(conn, changes["category_id"]):
+            raise InvalidEdit(f"{changes['category_id']!r} is not an assignable category")
 
         current = conn.execute(
             "SELECT category_id, note FROM transaction_overrides WHERE transaction_id = ?", (transaction_id,)

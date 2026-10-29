@@ -81,10 +81,18 @@ def activity(
     account_id: int | None = None,
     category_id: str | None = None,
     flow_type: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
 ) -> dict[str, Any]:
     """One page of the unified feed, newest first. `before` is the (date, id) cursor from the previous page."""
     clauses: list[str] = []
     params: list[Any] = []
+    if date_from is not None:
+        clauses.append("transaction_date >= ?")
+        params.append(date_from.isoformat())
+    if date_to is not None:
+        clauses.append("transaction_date <= ?")
+        params.append(date_to.isoformat())
     if before is not None:
         clauses.append("(transaction_date < ? OR (transaction_date = ? AND id < ?))")
         params += [before[0], before[0], before[1]]
@@ -111,6 +119,15 @@ def activity(
     items = [dict(row) for row in rows[:limit]]
     more = len(rows) > limit
     return {"items": items, "next": {"before": items[-1]["transaction_date"], "before_id": items[-1]["id"]} if more else None}
+
+
+def is_assignable(conn: sqlite3.Connection, category_id: str) -> bool:
+    """Only the leaves of the taxonomy can be given to a transaction; the groups exist for totals."""
+    row = conn.execute(
+        "SELECT NOT EXISTS (SELECT 1 FROM categories k WHERE k.parent_id = c.id) FROM categories c WHERE c.id = ?",
+        (category_id,),
+    ).fetchone()
+    return bool(row and row[0])
 
 
 def categories(conn: sqlite3.Connection) -> list[dict[str, Any]]:

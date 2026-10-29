@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import plistlib
 import subprocess
+import time
 from pathlib import Path
 
 from .config import REPO_ROOT, Settings
@@ -42,12 +43,20 @@ def install(settings: Settings) -> Path:
     Path(plist["StandardOutPath"]).parent.mkdir(parents=True, exist_ok=True)
     PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
     PLIST_PATH.write_bytes(plistlib.dumps(plist))
-    # Replace a previously loaded copy, if any, so a reinstall picks up changes.
+    # Replace a previously loaded copy, if any, so a reinstall picks up changes. bootout returns before the
+    # old server has exited, and bootstrapping before then fails with "5: Input/output error".
     subprocess.run(["launchctl", "bootout", f"{_domain()}/{LABEL}"], capture_output=True, check=False)
+    deadline = time.monotonic() + 10
+    while _loaded() and time.monotonic() < deadline:
+        time.sleep(0.2)
     result = subprocess.run(["launchctl", "bootstrap", _domain(), str(PLIST_PATH)], capture_output=True, text=True)
     if result.returncode != 0:
         raise ServiceError(f"launchctl bootstrap 失败：{result.stderr.strip()}")
     return PLIST_PATH
+
+
+def _loaded() -> bool:
+    return subprocess.run(["launchctl", "print", f"{_domain()}/{LABEL}"], capture_output=True).returncode == 0
 
 
 def uninstall() -> None:

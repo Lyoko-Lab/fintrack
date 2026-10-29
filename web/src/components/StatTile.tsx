@@ -13,7 +13,8 @@ interface StatTileProps {
 /** A headline number with its change against a named earlier point. Direction is spelled out, never color alone. */
 export function StatTile({ label, value, previous, compareLabel, upIsGood, footnote }: StatTileProps) {
   const change = previous === null ? null : value - previous;
-  const direction = change === null || change === 0 ? "flat" : change > 0 ? "up" : "down";
+  // Values are shown in whole dollars, so a change under $1 reads as no change.
+  const direction = change === null || Math.abs(change) < 100 ? "flat" : change > 0 ? "up" : "down";
   const tone = direction === "flat" ? "neutral" : (direction === "up") === upIsGood ? "good" : "bad";
 
   return (

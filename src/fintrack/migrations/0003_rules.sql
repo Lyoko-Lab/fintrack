@@ -1,0 +1,66 @@
+-- Phase 2: the user's categorization rules (docs/DESIGN.md §6).
+--
+-- A rule says "transactions that look like this go in that category". It outranks the
+-- automatic rules in enrich.py, and an edit to a single transaction outranks the rule.
+
+CREATE TABLE category_rules (
+    id           INTEGER PRIMARY KEY,
+    match_field  TEXT NOT NULL CHECK (match_field IN ('merchant', 'description')),
+    pattern      TEXT NOT NULL CHECK (trim(pattern) <> ''),        -- merchant: the whole name; description: a keyword
+    direction    TEXT CHECK (direction IN ('inflow', 'outflow')),  -- NULL: money moving either way
+    category_id  TEXT NOT NULL REFERENCES categories (id),
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+);
+
+-- One rule per condition (matching ignores case): saving the same condition again re-points it.
+CREATE UNIQUE INDEX category_rules_condition ON category_rules (match_field, lower(pattern), COALESCE(direction, ''));
+
+-- Which of the user's rules decided a transaction (NULL when an automatic rule did).
+ALTER TABLE transaction_enrichment ADD COLUMN user_rule_id INTEGER REFERENCES category_rules (id) ON DELETE SET NULL;
+
+DROP VIEW v_ledger;
+
+CREATE VIEW v_ledger AS
+SELECT
+    t.id,
+    t.transaction_date,
+    t.posted_date,
+    t.pending,
+    t.amount_cents,
+    t.currency,
+    COALESCE(t.merchant_name, t.description, t.original_description) AS display_name,
+    t.merchant_name,
+    t.description,
+    t.original_description,
+    t.logo_url,
+    t.pfc_detailed,
+    a.id AS account_id,
+    a.name AS account_name,
+    a.mask AS account_mask,
+    a.type AS account_type,
+    i.institution_name,
+    c.id AS category_id,
+    c.name AS category_name,
+    COALESCE(p.name, c.name) AS category_group,
+    c.kind AS flow_type,
+    o.category_id IS NOT NULL AS category_edited,
+    e.rule AS category_rule,
+    e.user_rule_id,
+    r.match_field AS user_rule_field,
+    r.pattern AS user_rule_pattern,
+    e.transfer_peer_id,
+    pa.name AS peer_account_name,
+    pa.mask AS peer_account_mask,
+    o.note
+FROM transactions t
+JOIN accounts a ON a.id = t.account_id
+JOIN items i ON i.id = a.item_id
+LEFT JOIN transaction_enrichment e ON e.transaction_id = t.id
+LEFT JOIN category_rules r ON r.id = e.user_rule_id
+LEFT JOIN transaction_overrides o ON o.transaction_id = t.id
+LEFT JOIN categories c ON c.id = COALESCE(o.category_id, e.category_id)
+LEFT JOIN categories p ON p.id = c.parent_id
+LEFT JOIN transactions pt ON pt.id = e.transfer_peer_id
+LEFT JOIN accounts pa ON pa.id = pt.account_id
+WHERE t.removed_at IS NULL;

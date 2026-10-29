@@ -1,10 +1,10 @@
 """Enrichment: give every transaction a category, which also decides income / expense / transfer.
 
-Runs after every sync and rewrites transaction_enrichment from scratch, so rule changes
-apply to history too. The user's own edits live in transaction_overrides and always win
-(see v_ledger).
+Runs after every sync, rule change and edit, and rewrites transaction_enrichment from
+scratch, so changes apply to history too. The user's own edits live in
+transaction_overrides and always win (see v_ledger).
 
-Rules, first match wins:
+The user's rules (rules.py) come first. Without one, the automatic rules, first match wins:
   1. Not a cash account (loans, investments)     → transfer: outside income and spending
   2. Person-to-person apps (Zelle, Venmo, ...)   → in: AA / reimbursement, which offsets spending
                                                    out: personal transfer, counted as spending
@@ -13,6 +13,8 @@ Rules, first match wins:
   5. Plaid's category, checked against the direction the money moved
   6. Fallback by direction
 Then equal-and-opposite amounts between the user's own accounts are paired into transfers.
+Pairing never re-labels what the user decided (a rule or an edit), but a transfer the
+user decided can still claim its other half.
 """
 
 from __future__ import annotations
@@ -20,9 +22,11 @@ from __future__ import annotations
 import re
 import sqlite3
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 
+from . import rules as user_rules
 from .db import transaction
 
 CASH_ACCOUNT_TYPES = ("depository", "credit")
@@ -134,6 +138,7 @@ class Decision:
     category_id: str
     rule: str
     transfer_peer_id: int | None = None
+    user_rule_id: int | None = None  # set when rule == "user_rule"
 
 
 def pfc_category(pfc_detailed: str | None) -> str | None:
@@ -169,17 +174,27 @@ def classify(txn: Txn, kinds: dict[str, str]) -> Decision:
     return Decision(category, "pfc")
 
 
-def pair_transfers(txns: list[Txn], decisions: dict[int, Decision], kinds: dict[str, str]) -> None:
+def pair_transfers(
+    txns: list[Txn],
+    decisions: dict[int, Decision],
+    kinds: dict[str, str],
+    settled: Mapping[int, str] | None = None,
+) -> None:
     """Link a money-out and an equal money-in on two of the user's accounts within a few days.
 
     At least one side must already look like a transfer and both must show some sign of
-    being one, so an unrelated refund of the same amount isn't swept in.
+    being one, so an unrelated refund of the same amount isn't swept in. `settled` maps
+    transactions whose category the user decided to that category: they pair only when the
+    user made them a transfer, and keep their category when they do.
     """
+    settled = settled or {}
 
     def strong(t: Txn) -> bool:
-        return kinds[decisions[t.id].category_id] == "transfer"
+        return kinds[settled.get(t.id, decisions[t.id].category_id)] == "transfer"
 
     def plausible(t: Txn) -> bool:
+        if t.id in settled:
+            return strong(t)
         return (
             strong(t)
             or bool(TRANSFER_HINT.search(t.text))
@@ -211,8 +226,11 @@ def pair_transfers(txns: list[Txn], decisions: dict[int, Decision], kinds: dict[
         inc = best[1]
         matched.add(inc.id)
         category = "transfer.card_payment" if inc.account_type == "credit" else "transfer.internal"
-        decisions[out.id] = Decision(category, "pair", inc.id)
-        decisions[inc.id] = Decision(category, "pair", out.id)
+        for side, peer in ((out, inc), (inc, out)):
+            if side.id in settled:
+                decisions[side.id].transfer_peer_id = peer.id
+            else:
+                decisions[side.id] = Decision(category, "pair", peer.id)
 
 
 # A pending transaction is replaced by a new posted one; keep whatever the user set on it.
@@ -235,20 +253,34 @@ def enrich_all(conn: sqlite3.Connection) -> int:
         txns = [
             Txn(*row)
             for row in conn.execute(
-                """
-                SELECT t.id, t.account_id, a.type, t.amount_cents, t.posted_date,
-                       COALESCE(t.original_description, '') || ' ' || COALESCE(t.description, ''),
+                f"""
+                SELECT t.id, t.account_id, a.type, t.amount_cents, t.posted_date, {user_rules.MATCH_TEXT},
                        t.merchant_name, t.pfc_detailed
                 FROM transactions t JOIN accounts a ON a.id = t.account_id
                 WHERE t.removed_at IS NULL
                 """
             )
         ]
-        decisions = {t.id: classify(t, kinds) for t in txns}
-        pair_transfers(txns, decisions, kinds)
+        rules = user_rules.load_rules(conn)
+        decisions: dict[int, Decision] = {}
+        settled: dict[int, str] = {}  # what the user decided: by a rule, or (stronger) by editing the transaction
+        for t in txns:
+            if rule := user_rules.first_match(rules, t.merchant_name, t.text, t.amount_cents):
+                decisions[t.id] = Decision(rule.category_id, "user_rule", user_rule_id=rule.id)
+                settled[t.id] = rule.category_id
+            else:
+                decisions[t.id] = classify(t, kinds)
+        settled |= {
+            row["transaction_id"]: row["category_id"]
+            for row in conn.execute("SELECT transaction_id, category_id FROM transaction_overrides WHERE category_id IS NOT NULL")
+        }
+        pair_transfers(txns, decisions, kinds, settled)
         conn.execute("DELETE FROM transaction_enrichment")
         conn.executemany(
-            "INSERT INTO transaction_enrichment (transaction_id, category_id, rule, transfer_peer_id) VALUES (?, ?, ?, ?)",
-            [(tid, d.category_id, d.rule, d.transfer_peer_id) for tid, d in decisions.items()],
+            """
+            INSERT INTO transaction_enrichment (transaction_id, category_id, rule, transfer_peer_id, user_rule_id)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [(tid, d.category_id, d.rule, d.transfer_peer_id, d.user_rule_id) for tid, d in decisions.items()],
         )
     return len(decisions)

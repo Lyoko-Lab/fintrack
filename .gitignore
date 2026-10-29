@@ -8,3 +8,4 @@ web/dist/
 # Local data and configuration: databases, backups, environment overrides.
 data/
 .env
+.dev-data/

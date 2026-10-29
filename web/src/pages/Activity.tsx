@@ -3,13 +3,24 @@ import { useEffect, useState } from "react";
 import { api, type ActivityFilters, type Cursor, type FlowType, type LedgerRow } from "../api";
 import { CategorySelect } from "../components/CategorySelect";
 import { TransactionList } from "../components/TransactionList";
+import { rangeLabel } from "../format";
+import { ROUTES } from "../router";
+
+/** Filters another page can open this one with, e.g. /activity?category=dining&from=2026-10-01&to=2026-10-28. */
+function linkedFilters() {
+  const params = new URLSearchParams(window.location.search);
+  const [from, to] = [params.get("from"), params.get("to")];
+  return { categoryId: params.get("category") ?? "", range: from && to ? { from, to } : null };
+}
 
 export function ActivityPage({ onSelect }: { onSelect(row: LedgerRow): void }) {
+  const [linked] = useState(linkedFilters);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [accountId, setAccountId] = useState("");
-  const [categoryId, setCategoryId] = useState("");
+  const [categoryId, setCategoryId] = useState(linked.categoryId);
   const [flowType, setFlowType] = useState<FlowType | "">("");
+  const [range, setRange] = useState(linked.range);
 
   useEffect(() => {
     const timer = setTimeout(() => setQuery(search.trim()), 250);
@@ -23,6 +34,8 @@ export function ActivityPage({ onSelect }: { onSelect(row: LedgerRow): void }) {
     account_id: accountId ? Number(accountId) : undefined,
     category_id: categoryId || undefined,
     flow_type: flowType || undefined,
+    date_from: range?.from,
+    date_to: range?.to,
   };
   const feed = useInfiniteQuery({
     queryKey: ["activity", "feed", filters],
@@ -32,13 +45,15 @@ export function ActivityPage({ onSelect }: { onSelect(row: LedgerRow): void }) {
   });
 
   const rows = feed.data?.pages.flatMap((page) => page.items) ?? [];
-  const filtered = Boolean(query || accountId || categoryId || flowType);
+  const filtered = Boolean(query || accountId || categoryId || flowType || range);
   const reset = () => {
     setSearch("");
     setQuery("");
     setAccountId("");
     setCategoryId("");
     setFlowType("");
+    setRange(null);
+    window.history.replaceState(null, "", ROUTES.activity);
   };
 
   return (
@@ -81,6 +96,14 @@ export function ActivityPage({ onSelect }: { onSelect(row: LedgerRow): void }) {
           placeholder="全部分类"
           label="分类"
         />
+        {range && (
+          <span className="filter-chip">
+            {rangeLabel(range.from, range.to)}
+            <button type="button" aria-label="不限日期" onClick={() => setRange(null)}>
+              ×
+            </button>
+          </span>
+        )}
         {filtered && (
           <button type="button" onClick={reset}>
             清除筛选

@@ -79,7 +79,7 @@ class Scheduler:
             ).fetchone()[0]
             if not is_due(self._clock(), _parse(last_success), _parse(last_attempt)):
                 return False
-            if conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0:
+            if conn.execute("SELECT COUNT(*) FROM items WHERE provider = 'plaid'").fetchone()[0] == 0:
                 return False
             run_sync(conn, self._plaid_factory(), triggered_by="schedule")
             return True

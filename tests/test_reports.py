@@ -70,6 +70,8 @@ def test_activity_pages_newest_first_and_filters(ledger: sqlite3.Connection):
     assert {row["flow_type"] for row in activity(ledger, flow_type="transfer")["items"]} == {"transfer"}
     assert len(activity(ledger, flow_type="transfer")["items"]) == 2
     assert {row["category_id"] for row in activity(ledger, category_id="transport")["items"]} == {"transport.gas"}
+    september = activity(ledger, date_from=date(2026, 9, 1), date_to=date(2026, 9, 28))["items"]
+    assert [row["transaction_date"] for row in september] == ["2026-09-28", "2026-09-15"]
 
 
 def test_search_treats_percent_and_underscore_literally(ledger: sqlite3.Connection):

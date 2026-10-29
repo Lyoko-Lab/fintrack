@@ -82,6 +82,8 @@ def _sandbox_link(args: argparse.Namespace) -> int:
 
 
 def _status(args: argparse.Namespace) -> int:
+    # Only what it takes to tell whether syncing works: no account names, masks, balances or transactions.
+    # Claude Code is allowed to run this command (see CLAUDE.md), so its output must stay free of personal data.
     settings = load_settings()
     conn = open_db(settings.db_path)
     print(f"环境：{settings.env}    数据库：{settings.db_path}")
@@ -94,17 +96,20 @@ def _status(args: argparse.Namespace) -> int:
             print(f"    错误：{item['last_error']}")
         accounts = conn.execute(
             """
-            SELECT a.*, (SELECT COUNT(*) FROM transactions t
-                         WHERE t.account_id = a.id AND t.removed_at IS NULL) AS transaction_count
-            FROM accounts a WHERE a.item_id = ? ORDER BY a.type, a.name
+            SELECT a.type, a.subtype, COUNT(t.id) AS transaction_count,
+                   MIN(t.transaction_date) AS first_date, MAX(t.transaction_date) AS last_date
+            FROM accounts a
+            LEFT JOIN transactions t ON t.account_id = a.id AND t.removed_at IS NULL
+            WHERE a.item_id = ?
+            GROUP BY a.id
+            ORDER BY a.type, a.subtype, a.id
             """,
             (item["id"],),
         )
         for a in accounts:
-            print(
-                f"    {a['name']} ··{a['mask'] or '----'}  {a['type']}/{a['subtype']}  "
-                f"余额 {_money(a['current_cents'])}  交易 {a['transaction_count']} 笔"
-            )
+            span = f"{a['first_date']} ~ {a['last_date']}" if a["transaction_count"] else "—"
+            print(f"    {a['type']}/{a['subtype'] or '-'}  交易 {a['transaction_count']} 笔  {span}")
+    print("\n这里不显示账户名称、尾号、余额和交易明细，请在网页上查看。")
     return 0
 
 
@@ -156,7 +161,3 @@ def _print_result(result: sync.SyncResult | None) -> None:
                 f"  {r.institution}：{r.accounts} 个账户，新增 {r.added} 笔、修改 {r.modified} 笔、"
                 f"移除 {r.removed} 笔，历史状态 {r.transactions_status}"
             )
-
-
-def _money(cents: int | None) -> str:
-    return "—" if cents is None else f"${cents / 100:,.2f}"

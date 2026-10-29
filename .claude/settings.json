@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./data/**)",
+      "Read(/data/**)",
+      "Read(**/fintrack-*.db*)",
+      "Read(~/Library/Keychains/**)",
+      "Edit(./data/**)",
+      "Edit(/data/**)",
+      "Bash(sqlite3 *)",
+      "Bash(security find-generic-password *)",
+      "Bash(security find-internet-password *)",
+      "Bash(security dump-keychain *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|mcp__Claude_Browser__.*|mcp__claude-in-chrome__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/private_data_guard.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
