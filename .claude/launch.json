@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "fintrack",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "fintrack", "serve"],
+      "port": 8787
+    }
+  ]
+}
