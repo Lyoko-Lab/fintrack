@@ -9,7 +9,7 @@ import { InsightsPage } from "./pages/Insights";
 import { OverviewPage } from "./pages/Overview";
 import { RulesPage } from "./pages/Rules";
 import { invalidateLedger } from "./queries";
-import { Link, useRoute, type Route } from "./router";
+import { Link, useRoute, useScrollRestoration, type Route } from "./router";
 import { statusRefetchInterval } from "./syncPolling";
 
 const NAV: { route: Route; label: string }[] = [
@@ -22,6 +22,7 @@ const NAV: { route: Route; label: string }[] = [
 
 export function App() {
   const route = useRoute();
+  useScrollRestoration();
   const queryClient = useQueryClient();
   const status = useQuery({
     queryKey: ["status"],

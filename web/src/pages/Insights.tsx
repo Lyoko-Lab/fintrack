@@ -1,14 +1,15 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api, type Breakdown, type CategoryAmount, type CategoryGroup, type CompareMode, type Granularity } from "../api";
 import { BarChart } from "../components/BarChart";
 import { Donut, type Slice } from "../components/Donut";
 import { Segmented } from "../components/Segmented";
 import { StatTile } from "../components/StatTile";
 import { axisLabel, compactMoney, compareLabel, everyLabel, money, percent, periodName, rangeLabel, shortDay } from "../format";
-import { navigate } from "../router";
+import { navigate, replaceQuery } from "../router";
 
 type Metric = "spending" | "income" | "net";
+type View = "chart" | "table";
 
 const GRANULARITIES: { value: Granularity; label: string }[] = [
   { value: "day", label: "日" },
@@ -22,6 +23,29 @@ const METRICS: { value: Metric; label: string }[] = [
   { value: "net", label: "结余" },
 ];
 const PREVIOUS: Record<Granularity, string> = { day: "前一天", week: "上一周", month: "上个月", year: "上一年" };
+
+/**
+ * The view settings, as kept in the URL (only those that differ from the defaults), so the browser's
+ * Back button returns to the same period, comparison and expanded rows after a drill-down.
+ */
+function settingsFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const pick = <T extends string>(name: string, allowed: readonly T[], fallback: T): T => {
+    const value = params.get(name);
+    return allowed.find((option) => option === value) ?? fallback;
+  };
+  const granularity = pick<Granularity>("granularity", ["day", "week", "month", "year"], "month");
+  const compare = pick<CompareMode>("compare", ["previous", "year", "average"], "previous");
+  const start = params.get("start");
+  return {
+    granularity,
+    compare: granularity === "year" && compare === "year" ? "previous" : compare,
+    metric: pick<Metric>("metric", ["spending", "income", "net"], "spending"),
+    view: pick<View>("view", ["chart", "table"], "chart"),
+    focus: start && /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : null,
+    open: new Set((params.get("open") ?? "").split(",").filter(Boolean)) as ReadonlySet<string>,
+  };
+}
 
 function compareOptions(granularity: Granularity): { value: CompareMode; label: string }[] {
   return [
@@ -198,15 +222,15 @@ interface CategoryTableProps {
   upIsGood: boolean;
   compareText: string;
   period: { start: string; end: string };
+  open: ReadonlySet<string>; // groups showing their subcategories
+  onToggle(id: string): void;
   children?: ReactNode; // a chart above the table
 }
 
-function CategoryTable({ noun, groups, upIsGood, compareText, period, children }: CategoryTableProps) {
-  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+function CategoryTable({ noun, groups, upIsGood, compareText, period, open, onToggle: toggle, children }: CategoryTableProps) {
   const max = Math.max(1, ...groups.flatMap((group) => [group.current, group.comparison]));
   // Shares are of everything that went out (or came in), before anything that offsets it.
   const gross = groups.reduce((sum, group) => sum + Math.max(group.current, 0), 0);
-  const toggle = (id: string) => setOpen((ids) => (ids.has(id) ? new Set([...ids].filter((x) => x !== id)) : new Set([...ids, id])));
 
   const row = (entry: CategoryAmount, group: CategoryGroup | null) => (
     <tr key={entry.id} className={group ? undefined : "child"}>
@@ -293,11 +317,26 @@ function CategoryTable({ noun, groups, upIsGood, compareText, period, children }
 }
 
 export function InsightsPage() {
-  const [granularity, setGranularity] = useState<Granularity>("month");
-  const [compare, setCompare] = useState<CompareMode>("previous");
-  const [metric, setMetric] = useState<Metric>("spending");
-  const [focus, setFocus] = useState<string | null>(null); // start of the chosen period; null: the latest
-  const [view, setView] = useState<"chart" | "table">("chart");
+  const [initial] = useState(settingsFromUrl);
+  const [granularity, setGranularity] = useState<Granularity>(initial.granularity);
+  const [compare, setCompare] = useState<CompareMode>(initial.compare);
+  const [metric, setMetric] = useState<Metric>(initial.metric);
+  const [focus, setFocus] = useState<string | null>(initial.focus); // start of the chosen period; null: the latest
+  const [view, setView] = useState<View>(initial.view);
+  const [open, setOpen] = useState(initial.open);
+  const toggle = (id: string) =>
+    setOpen((ids) => (ids.has(id) ? new Set([...ids].filter((other) => other !== id)) : new Set([...ids, id])));
+
+  useEffect(() => {
+    replaceQuery({
+      granularity: granularity === "month" ? undefined : granularity,
+      start: focus ?? undefined,
+      compare: compare === "previous" ? undefined : compare,
+      metric: metric === "spending" ? undefined : metric,
+      view: view === "chart" ? undefined : view,
+      open: [...open].join(","),
+    });
+  }, [granularity, focus, compare, metric, view, open]);
 
   const trend = useQuery({
     queryKey: ["insights", "trend", granularity],
@@ -443,10 +482,26 @@ export function InsightsPage() {
             />
           </div>
           <Drivers breakdown={data} label={label} />
-          <CategoryTable noun="支出" groups={data.spending} upIsGood={false} compareText={label} period={data.period}>
+          <CategoryTable
+            noun="支出"
+            groups={data.spending}
+            upIsGood={false}
+            compareText={label}
+            period={data.period}
+            open={open}
+            onToggle={toggle}
+          >
             <SpendingComposition data={data} />
           </CategoryTable>
-          <CategoryTable noun="收入" groups={data.income} upIsGood compareText={label} period={data.period} />
+          <CategoryTable
+            noun="收入"
+            groups={data.income}
+            upIsGood
+            compareText={label}
+            period={data.period}
+            open={open}
+            onToggle={toggle}
+          />
         </div>
       )}
     </>

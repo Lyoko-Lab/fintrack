@@ -86,7 +86,8 @@ export function BarChart({ bars, selected, onSelect, formatValue, formatTick, la
 
   const tip = active === null ? null : bars[active];
   return (
-    <div className="chart" ref={box}>
+    // Full height before the width is measured, so the page doesn't change length on first render.
+    <div className="chart" ref={box} style={{ height: HEIGHT }}>
       {width > 0 && (
         <svg width={width} height={HEIGHT}>
           <g aria-hidden="true">
