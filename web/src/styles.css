@@ -19,6 +19,13 @@
   --bad: #b3261e;
   --warn: #8a5a00;
   --backdrop: rgba(11, 11, 11, 0.28);
+  /* Amount shading for the payment calendar: the series blue mixed into the tile color in four
+     steps, so the more owed, the bluer. Mixed rather than solid, it stays soft in both modes, and
+     the page's own ink stays readable on every step (checked at the strongest one). */
+  --heat-1: color-mix(in srgb, var(--series-1) 18%, var(--surface-sunken));
+  --heat-2: color-mix(in srgb, var(--series-1) 34%, var(--surface-sunken));
+  --heat-3: color-mix(in srgb, var(--series-1) 50%, var(--surface-sunken));
+  --heat-4: color-mix(in srgb, var(--series-1) 66%, var(--surface-sunken));
   /* Charts: categorical hues in their fixed order (validated as adjacent pairs, both modes), a gray
      for "the rest", the opposite pole for values below zero, and the zero line. */
   --series-1: #2a78d6;
@@ -673,7 +680,7 @@ textarea {
 
 .payment-row {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
   padding: 10px 0;
@@ -684,24 +691,156 @@ textarea {
   border-top: 0;
 }
 
-.due-date {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 52px;
-  border-radius: 10px;
-  background: var(--surface-sunken);
-  line-height: 1.15;
+.small-text {
+  margin-right: auto;
+  font-size: 12px;
 }
 
-.due-month {
+/* The payment calendar: a mosaic of day tiles, two pixels of surface between them, with the
+   chosen day's cards beside it (below it on a narrow screen). */
+
+.payment-calendar-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px 28px;
+}
+
+.calendar-wrap {
+  flex: 0 1 420px;
+  min-width: 0;
+}
+
+.calendar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.cal-weekday {
+  padding-bottom: 4px;
   font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.cal-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  min-height: 46px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  color: var(--ink-2);
+  line-height: 1.25;
+  text-align: left;
+}
+
+button.cal-cell:hover:not(:disabled) {
+  filter: brightness(0.95);
+}
+
+.cal-cell.past {
+  opacity: 0.4;
+}
+
+.cal-cell.today {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.cal-cell.selected {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.cal-cell.heat-1 { background: var(--heat-1); color: var(--ink); }
+.cal-cell.heat-2 { background: var(--heat-2); color: var(--ink); }
+.cal-cell.heat-3 { background: var(--heat-3); color: var(--ink); }
+.cal-cell.heat-4 { background: var(--heat-4); color: var(--ink); }
+
+.cal-cell.settled .cal-amount {
+  color: var(--good);
+}
+
+.cal-day {
+  font-size: 11px;
+}
+
+.cal-month {
+  display: block;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+/* A lone figure in a tile: proportional digits, which tabular ones would space out (they give a 1
+   the width of a 0), drawn a touch tighter still. */
+.cal-amount {
+  margin-top: auto;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.cal-count {
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+.cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 8px 0 4px;
+  font-size: 12px;
   color: var(--ink-2);
 }
 
-.due-day {
-  font-size: 20px;
+.cal-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cal-ramp i,
+.cal-swatch {
+  display: inline-grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  font-style: normal;
+}
+
+.cal-ramp i {
+  margin: 0 -2px;
+}
+
+.cal-ramp i.heat-1 { background: var(--heat-1); }
+.cal-ramp i.heat-2 { background: var(--heat-2); }
+.cal-ramp i.heat-3 { background: var(--heat-3); }
+.cal-ramp i.heat-4 { background: var(--heat-4); }
+
+.settled-swatch {
+  background: var(--surface-sunken);
+  color: var(--good);
+  font-size: 9px;
+}
+
+.today-swatch {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.cal-details {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.cal-details h3 {
+  margin: 0;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -1505,6 +1644,25 @@ textarea {
 
   .composition {
     justify-content: center;
+  }
+
+  /* Phone-sized tiles: the day and the amount; the card count is in the list below. */
+  .cal-cell {
+    min-height: 40px;
+    padding: 3px 4px;
+  }
+
+  .cal-details {
+    padding-top: 12px;
+    border-top: 1px solid var(--hairline);
+  }
+
+  .cal-count {
+    display: none;
+  }
+
+  .cal-amount {
+    font-size: 11px;
   }
 
   /* No room for the comparison bars on a phone; the legend goes with them. */
