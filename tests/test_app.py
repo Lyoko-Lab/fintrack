@@ -126,3 +126,7 @@ def test_the_react_app_is_served_for_client_side_routes(settings: Settings, plai
     assert api.get("/assets/app.js").text == "console.log(1)"
     assert api.get("/..%2Fsecret.txt").text == "<div id=root></div>"  # never escapes the build directory
     assert api.get("/api/nope").status_code == 404
+
+
+def test_card_payments_endpoint(settings: Settings, plaid: FakePlaid):
+    assert api_for(settings, plaid.client).get("/api/card-payments").json() == []

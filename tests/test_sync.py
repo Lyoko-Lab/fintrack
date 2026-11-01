@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from plaid_fakes import FakeItem, FakePlaid, account, page, txn
+from plaid_fakes import FakeItem, FakePlaid, account, card, page, txn
 
 from fintrack import keychain
 from fintrack.sync import run_sync, sync_new_item
@@ -129,6 +129,26 @@ def test_one_bank_needing_login_does_not_block_the_others(db, plaid):
     statuses = dict(db.execute("SELECT institution_name, status FROM items").fetchall())
     assert statuses == {"Chase": "active", "American Express": "login_required"}
     assert scalar(db, "SELECT COUNT(*) FROM transactions") == 1
+
+
+def test_card_statements_are_kept_and_replaced_on_each_sync(db, plaid):
+    link(db, plaid, pages={None: page(next_cursor="c1"), "c1": page(next_cursor="c1")})
+    plaid.items["access-1"].cards = [card(statement=1234.56, due="2026-10-28")]
+    run_sync(db, plaid.client(), triggered_by="test")
+    plaid.items["access-1"].cards = [card(statement=310.00, statement_date="2026-11-03", due="2026-11-28")]
+    run_sync(db, plaid.client(), triggered_by="test")
+
+    rows = db.execute("SELECT statement_date, statement_cents, minimum_cents, due_date FROM card_statements").fetchall()
+    assert [tuple(row) for row in rows] == [("2026-11-03", 31000, 3500, "2026-11-28")]
+    assert scalar(db, "SELECT COUNT(*) FROM raw_events WHERE endpoint = '/liabilities/get'") == 2
+
+
+def test_a_bank_without_card_statements_still_syncs(db, plaid):
+    link(db, plaid, pages={None: page(added=[txn("t1", 5, "2026-10-01")], next_cursor="c1")})  # cards=None: an error
+
+    assert run_sync(db, plaid.client(), triggered_by="test").status == "success"
+    assert scalar(db, "SELECT status FROM items") == "active"
+    assert scalar(db, "SELECT COUNT(*) FROM card_statements") == 0
 
 
 def test_a_new_item_is_polled_until_its_history_arrives(db, plaid):

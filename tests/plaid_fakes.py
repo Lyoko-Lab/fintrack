@@ -15,6 +15,7 @@ from fintrack.plaid import PlaidClient
 class FakeItem:
     accounts: list[dict[str, Any]]
     pages: dict[str | None, dict[str, Any]] = field(default_factory=dict)  # cursor -> /transactions/sync body
+    cards: list[dict[str, Any]] | None = None  # /liabilities/get credit entries; None: the bank has none
 
 
 class FakePlaid:
@@ -50,6 +51,12 @@ class FakePlaid:
             return httpx2.Response(200, json={"accounts": item.accounts, "item": {}, "request_id": "req"})
         if path == "/transactions/sync":
             return httpx2.Response(200, json=item.pages[body.get("cursor")])
+        if path == "/liabilities/get":
+            if item.cards is None:
+                error = {"error_type": "ITEM_ERROR", "error_code": "NO_LIABILITY_ACCOUNTS", "error_message": "none"}
+                return httpx2.Response(400, json=error)
+            liabilities = {"credit": item.cards, "mortgage": [], "student": []}
+            return httpx2.Response(200, json={"accounts": item.accounts, "liabilities": liabilities, "request_id": "req"})
         return httpx2.Response(404, json={"error_code": "NOT_FOUND", "error_message": path})
 
 
@@ -68,6 +75,26 @@ def account(
         "account_id": account_id, "name": name, "official_name": None, "mask": mask, "type": type, "subtype": subtype,
         "balances": {"current": current, "available": available, "limit": limit,
                      "iso_currency_code": "USD", "unofficial_currency_code": None},
+    }  # fmt: skip
+
+
+def card(
+    account_id: str = "acc-card",
+    *,
+    statement: float | None = 1234.56,
+    statement_date: str | None = "2026-10-03",
+    minimum: float | None = 35,
+    due: str | None = "2026-10-28",
+    last_payment: float | None = 980.10,
+    last_payment_date: str | None = "2026-09-26",
+    overdue: bool | None = False,
+) -> dict[str, Any]:
+    """A /liabilities/get credit entry."""
+    return {
+        "account_id": account_id, "aprs": [], "is_overdue": overdue,
+        "last_payment_amount": last_payment, "last_payment_date": last_payment_date,
+        "last_statement_issue_date": statement_date, "last_statement_balance": statement,
+        "minimum_payment_amount": minimum, "next_payment_due_date": due,
     }  # fmt: skip
 
 

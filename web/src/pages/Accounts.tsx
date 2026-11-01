@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, type Account, type Item, type ItemStatus, type Status } from "../api";
-import { money, whenLabel } from "../format";
+import { api, type Account, type CardPayment, type Item, type ItemStatus, type Status } from "../api";
+import { DueState } from "../components/DueState";
+import { money, shortDay, whenLabel } from "../format";
 import { openPlaidLink } from "../plaidLink";
 import { expectSync } from "../syncPolling";
 
@@ -21,6 +22,8 @@ export function AccountsPage({ status }: { status: Status | undefined }) {
   const queryClient = useQueryClient();
   const accounts = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
   const overview = useQuery({ queryKey: ["overview"], queryFn: api.overview });
+  const cardPayments = useQuery({ queryKey: ["card-payments"], queryFn: api.cardPayments });
+  const payments = new Map(cardPayments.data?.map((payment) => [payment.account_id, payment]));
   const [problem, setProblem] = useState<string | null>(null);
 
   const refreshStatus = () => {
@@ -104,6 +107,7 @@ export function AccountsPage({ status }: { status: Status | undefined }) {
           key={item.id}
           item={item}
           accounts={accounts.data?.filter((a) => a.item_id === item.id) ?? []}
+          payments={payments}
           onReconnect={() => {
             setProblem(null);
             link.mutate(item.id);
@@ -124,16 +128,19 @@ export function AccountsPage({ status }: { status: Status | undefined }) {
 function Institution({
   item,
   accounts,
+  payments,
   onReconnect,
   busy,
 }: {
   item: Item;
   accounts: Account[];
+  payments: Map<number, CardPayment>; // by account id, for credit cards with a statement
   onReconnect(): void;
   busy: boolean;
 }) {
   const [icon, label] = ITEM_STATUS[item.status];
   const history = item.status === "active" ? HISTORY[item.transactions_status ?? ""] : undefined;
+  const hasStatements = accounts.some((account) => payments.has(account.id));
   return (
     <section className="panel">
       <div className="panel-header">
@@ -164,20 +171,54 @@ function Institution({
               <th className="num">余额 / 欠款</th>
               <th className="num">可用</th>
               <th className="num">信用额度</th>
+              {hasStatements && (
+                <>
+                  <th className="num">本期账单</th>
+                  <th>还款日</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>
-            {accounts.map((account) => (
-              <tr key={account.id}>
-                <td>
-                  {account.name} {account.mask && <span className="muted">··{account.mask}</span>}
-                </td>
-                <td>{ACCOUNT_TYPE[account.type] ?? account.type}</td>
-                <td className="num">{money(account.current_cents)}</td>
-                <td className="num">{money(account.available_cents)}</td>
-                <td className="num">{money(account.limit_cents)}</td>
-              </tr>
-            ))}
+            {accounts.map((account) => {
+              const payment = payments.get(account.id);
+              return (
+                <tr key={account.id}>
+                  <td>
+                    {account.name} {account.mask && <span className="muted">··{account.mask}</span>}
+                  </td>
+                  <td>{ACCOUNT_TYPE[account.type] ?? account.type}</td>
+                  <td className="num">{money(account.current_cents)}</td>
+                  <td className="num">{money(account.available_cents)}</td>
+                  <td className="num">{money(account.limit_cents)}</td>
+                  {hasStatements && (
+                    <>
+                      <td className="num">
+                        {payment ? (
+                          <span className="cell-stack">
+                            {money(payment.statement_cents)}
+                            {payment.minimum_cents ? <small>最低 {money(payment.minimum_cents)}</small> : null}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td>
+                        {payment ? (
+                          <span className="cell-stack">
+                            {payment.due_date ? shortDay(payment.due_date) : "—"}
+                            <small>
+                              <DueState payment={payment} />
+                              {payment.state === "due" && payment.paid_cents > 0 && payment.remaining_cents !== null
+                                ? `，还差 ${money(payment.remaining_cents)}`
+                                : null}
+                            </small>
+                          </span>
+                        ) : null}
+                      </td>
+                    </>
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

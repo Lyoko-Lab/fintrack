@@ -48,11 +48,21 @@ CARD_PAYMENT = {
     "Contoso Card": "CONTOSO CARD SERVICES DES:EPAY ID:000000",
     "Fabrikam Express": "FABRIKAM EXPRESS DES:ACH PMT ID:000000",
 }
+# Statements close at month end and are due on this day of the next month. Cards are paid in
+# full on the due day, except the spare card, which is paid the day after its statement closes.
+DUE_DAY = {"rewards": 22, "dining": 15, "travel": 15, "grocery": 15, "online": 5, "spare": 5}
+PAID_EARLY = {"spare"}
+CREDIT_LIMIT = {"rewards": 1_000_000, "dining": 800_000, "travel": 1_500_000, "grocery": 600_000, "online": 1_200_000, "spare": 300_000}
+
+Row = tuple[str, int, date, str, str | None, str | None]
+# account key, statement date, amount owed, minimum payment, due date, last payment (cents, date)
+Statement = tuple[str, date, int, int, date, tuple[int, date] | None]
 
 
-def generate(today: date, rng: random.Random) -> list[tuple[str, int, date, str, str | None, str | None]]:
-    """(account key, cents, date, bank description, merchant, Plaid category) for every made-up transaction."""
-    rows: list[tuple[str, int, date, str, str | None, str | None]] = []
+def generate(today: date, rng: random.Random) -> tuple[list[Row], list[Statement]]:
+    """(account key, cents, date, bank description, merchant, Plaid category) for every made-up
+    transaction, and each card's latest statement."""
+    rows: list[Row] = []
 
     def add(key: str, cents: int, day: date, text: str, merchant: str | None = None, pfc: str | None = None) -> None:
         rows.append((key, cents, day, text, merchant, pfc))
@@ -127,18 +137,29 @@ def generate(today: date, rng: random.Random) -> list[tuple[str, int, date, str,
             add("travel", -rng.randint(45_000, 140_000), day + timedelta(days=4), "HARBORVIEW HOTEL", "Harborview Hotel", "TRAVEL_LODGING")
         day += timedelta(days=1)
 
-    # Every card is paid in full on the 22nd for the month before, from checking.
+    # Each month's statement is paid in full from checking, on the due day (see DUE_DAY).
     owed: dict[tuple[str, int, int], int] = defaultdict(int)
     for key, cents, day, *_ in rows:
         if key != "checking":
             owed[(key, day.year, day.month)] -= cents
     institution_of = {key: name for name, accounts in INSTITUTIONS.items() for key, *_ in accounts}
-    for (key, year, month), amount in owed.items():
-        due = date(year + month // 12, month % 12 + 1, 22)
-        if amount > 0 and due <= today:
-            add("checking", -amount, due, CARD_PAYMENT[institution_of[key]])
-            add(key, amount, due + timedelta(days=1), "AUTOMATIC PAYMENT - THANK YOU")
-    return [row for row in rows if start <= row[2] <= today]
+    last_payment: dict[str, tuple[int, date]] = {}
+    for (key, year, month), amount in sorted(owed.items(), key=lambda entry: entry[0][1:]):
+        next_month = date(year + month // 12, month % 12 + 1, 1)
+        paid_on = next_month if key in PAID_EARLY else next_month.replace(day=DUE_DAY[key])
+        if amount > 0 and paid_on <= today:
+            add("checking", -amount, paid_on, CARD_PAYMENT[institution_of[key]])
+            add(key, amount, paid_on, "AUTOMATIC PAYMENT - THANK YOU")
+            last_payment[key] = (amount, paid_on)
+
+    # The latest statements closed at the end of last month and are due this month.
+    closed = today.replace(day=1) - timedelta(days=1)
+    statements: list[Statement] = []
+    for key, due_day in DUE_DAY.items():
+        amount = owed.get((key, closed.year, closed.month), 0)
+        minimum = min(amount, max(2_500, round(amount * 0.02))) if amount > 0 else 0
+        statements.append((key, closed, amount, minimum, today.replace(day=due_day), last_payment.get(key)))
+    return [row for row in rows if start <= row[2] <= today], statements
 
 
 def main() -> int:
@@ -154,7 +175,7 @@ def main() -> int:
             Path(f"{path}{suffix}").unlink(missing_ok=True)
 
     today = date.today()
-    rows = generate(today, random.Random(2026))
+    rows, statements = generate(today, random.Random(2026))
     conn = open_db(path)
     now = utcnow()
     with transaction(conn):
@@ -194,9 +215,23 @@ def main() -> int:
             balances[key] += cents
         for key, account_id in ids.items():
             current = OPENING_CHECKING_BALANCE + balances[key] if key == "checking" else -balances[key]
+            limit = CREDIT_LIMIT.get(key)
             conn.execute(
-                "UPDATE accounts SET current_cents = ?, balance_as_of = ? WHERE id = ?", (current, today.isoformat(), account_id)
+                "UPDATE accounts SET current_cents = ?, available_cents = ?, limit_cents = ?, balance_as_of = ? WHERE id = ?",
+                (current, current if limit is None else limit - current, limit, today.isoformat(), account_id),
             )
+        conn.executemany(
+            """
+            INSERT INTO card_statements (account_id, statement_date, statement_cents, minimum_cents, due_date,
+                                         last_payment_cents, last_payment_date, is_overdue, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+            """,
+            [
+                (ids[key], closed.isoformat(), owed, minimum, due.isoformat(),
+                 last[0] if last else None, last[1].isoformat() if last else None, now)  # fmt: skip
+                for key, closed, owed, minimum, due, last in statements
+            ],
+        )
     enrich_all(conn)
     print(f"Wrote {len(rows)} made-up transactions to {path}")
     return 0

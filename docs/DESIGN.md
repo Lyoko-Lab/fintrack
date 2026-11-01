@@ -8,11 +8,11 @@
 
 | 功能 | 说明 |
 |---|---|
-| **Overview** | 首页：Income MTD、Spending MTD、Net Cash Position 三张指标卡（附"比上月同期"），下面接 Activity |
+| **Overview** | 首页：Income MTD、Spending MTD、Net Cash Position 三张指标卡（附"比上月同期"），然后是近期信用卡还款，下面接 Activity |
 | **Activity** | 7 个账户的交易按日期合并成一条流水；转账照常显示，加 ⇄ 标记，但不计入收支 |
 | **Insights** | 按日、周、月、年看现金流趋势、支出结构、同期对比和变化来源 |
 | **Ask Fintrack** | 用 Claude 对全部交易做对话式分析 |
-| **Accounts** | 余额、连接状态、重新授权 |
+| **Accounts** | 余额、信用额度、信用卡本期账单和还款日、连接状态、重新授权 |
 | **Rules** | 分类规则；你手动改分类时可以一键生成 |
 
 指标口径：
@@ -20,6 +20,7 @@
 - **Income MTD**：本月 1 日至今，`flow_type = income` 的金额之和
 - **Spending MTD**：本月 1 日至今，`flow_type = expense` 的流出之和，再减去退款（支出类别里的正数）。待入账交易也计入
 - **Net Cash Position**：存款账户当前余额之和，减去信用卡当前欠款之和
+- **信用卡还款**：每张卡的本期账单金额、最低还款和还款日都来自银行（见第 3 节）。"已还"指账单日之后转入这张卡的钱，取账本里记为信用卡还款的金额和银行记录的上次还款中较大的一个，因为账本可能把某笔还款归到了别处。已还金额不少于账单金额，就是"已还清"；过了还款日还没还清，或者银行标记为逾期，就是"已逾期"。总览只列出还没还清的卡，按紧急程度排序，并给出待还合计
 - **对比口径**：收入和支出与"上月同期"比（上月 1 日到上月同一天，月底日期自动截到上月最后一天）。净现金头寸与"上月同日"比。聚合商只提供当前余额，所以过去某天的头寸用倒推计算：当前头寸减去那天之后所有已入账交易的金额之和。两个已关联账户之间的转账一出一进，正好抵消。上月值为零或负数时，不显示百分比
 
 ## 2. 架构
@@ -55,6 +56,7 @@ Plaid API
 
 - 一次银行登录算一个 Item。Trial 共 10 个，**按累计数计算，删除后不返还**。连接掉线一律用 Link 的 update mode 修复，不删除重连。
 - Link 参数：`products=["transactions"]`，`optional_products=["liabilities"]`，`transactions.days_requested=730`（Item 创建后不能再改）。不申请 `auth`，所以系统里不会有完整卡号和 routing number。
+- 每次同步顺带调用 `/liabilities/get`，取信用卡的本期账单金额、账单日、最低还款、还款日和上次还款，存进 `card_statements`（每张卡一行，每次覆盖）。银行不支持、Item 下没有信用卡、或者数据还没准备好时，这一步跳过，不影响交易同步。
 - 桌面浏览器里，OAuth 会在弹窗中完成，不需要 `redirect_uri`。
 - 正式环境的前提：Trial 申请已通过（自 2026-05-20 起，Trial 可直接使用所有 OAuth 银行，不需要安全问卷）；Link customization 里已选好 Data Transparency 用途。
 - OAuth 授权会过期：BOA 和 Amex 每 12 个月一次；Chase 由用户在授权时选 6 个月或 1 年（"always" 只对开通了 Auth 的应用开放）。过期后 Item 进入 `ITEM_LOGIN_REQUIRED`，走 update mode 修复。
@@ -66,7 +68,7 @@ Plaid API
 | 层 | 表 | 规则 |
 |---|---|---|
 | Raw | `raw_events` | 每个 API 响应的原文，只追加不修改 |
-| Ledger | `items` `accounts` `transactions` `balance_snapshots` `sync_runs` | 清洗后的统一账本 |
+| Ledger | `items` `accounts` `transactions` `balance_snapshots` `card_statements` `sync_runs` | 清洗后的统一账本 |
 | Enrichment | `categories` `transaction_enrichment` `transaction_overrides` | 自动分类每次同步后全量重算；用户修改单独存放，同步绝不覆盖 |
 | Views | `v_ledger` | Overview、Activity、Insights、Ask 都只读这个视图，保证各处口径一致 |
 
@@ -180,4 +182,5 @@ Claude Code 读到的内容都会发送给 Anthropic，所以开发时只接触�
 - [x] Phase 2 代码（2026-10-28）：分类规则和「以后同样的交易也归入这个分类」、Insights 分析页、交易流按日期范围筛选、开发用的合成演示数据。真实数据上的分类由你在网页上修正，这也是 Phase 1 规则的校准方式
 - [ ] Phase 3：Claude 分类与 Ask Fintrack
 - [ ] 账户管理：给已连接的银行补选或移除卡片（update mode 选卡）、把账户排除在统计之外、授权到期提醒、用 CSV 导入补齐更早的历史
-- [ ] 之后：识别订阅和周期扣费、异常交易提醒、还款日提醒（Liabilities）、预算、投资账户
+- [x] 信用卡还款提醒（2026-11-01）：同步时取信用卡账单（Liabilities），账户页显示本期账单和还款日，总览列出待还的卡
+- [ ] 之后：识别订阅和周期扣费、异常交易提醒、预算、投资账户

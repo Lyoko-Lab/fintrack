@@ -54,6 +54,25 @@ export interface Comparison {
   previous: number;
 }
 
+/** A credit card's latest statement and what is left to pay on it. Amounts owed are positive. */
+export interface CardPayment {
+  account_id: number;
+  account_name: string;
+  account_mask: string | null;
+  institution_name: string | null;
+  statement_date: string | null;
+  statement_cents: number | null;
+  minimum_cents: number | null;
+  due_date: string | null;
+  last_payment_cents: number | null;
+  last_payment_date: string | null;
+  is_overdue: boolean | null;
+  paid_cents: number; // paid into the card since the statement was issued
+  remaining_cents: number | null; // still to pay on the statement; null when its amount is unknown
+  days_left: number | null; // until the due date; negative once it has passed
+  state: "due" | "overdue" | "paid";
+}
+
 export interface Period {
   start: string;
   end: string;
@@ -219,6 +238,7 @@ const patch = <T>(path: string, body: unknown) => request<T>(path, { method: "PA
 export const api = {
   status: () => request<Status>("/api/status"),
   overview: () => request<Overview>("/api/overview"),
+  cardPayments: () => request<CardPayment[]>("/api/card-payments"),
   accounts: () => request<Account[]>("/api/accounts"),
   categories: () => request<Category[]>("/api/categories"),
   activity: (filters: ActivityFilters, cursor: Cursor | null, limit = 50) =>

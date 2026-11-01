@@ -104,6 +104,9 @@ class PlaidClient:
     def get_accounts(self, access_token: str) -> PlaidResponse:
         return self.post("/accounts/get", {"access_token": access_token})
 
+    def get_liabilities(self, access_token: str) -> PlaidResponse:
+        return self.post("/liabilities/get", {"access_token": access_token})
+
     def sync_transactions(self, access_token: str, cursor: str | None) -> PlaidResponse:
         payload: dict[str, Any] = {
             "access_token": access_token,
@@ -170,6 +173,38 @@ class TransactionRecord:
     pfc_confidence: str | None
     logo_url: str | None
     website: str | None
+
+
+@dataclass(frozen=True)
+class CardStatementRecord:
+    """A credit card's latest statement and the payment due on it. Amounts are owed, so positive."""
+
+    account_external_id: str
+    statement_date: str | None
+    statement_cents: int | None
+    minimum_cents: int | None
+    due_date: str | None
+    last_payment_cents: int | None
+    last_payment_date: str | None
+    is_overdue: bool | None
+
+
+def parse_card_statements(liabilities: dict[str, Any]) -> list[CardStatementRecord]:
+    """The credit cards in a /liabilities/get body (mortgages and student loans aren't tracked)."""
+    return [
+        CardStatementRecord(
+            account_external_id=card["account_id"],
+            statement_date=card.get("last_statement_issue_date"),
+            statement_cents=_optional_cents(card.get("last_statement_balance")),
+            minimum_cents=_optional_cents(card.get("minimum_payment_amount")),
+            due_date=card.get("next_payment_due_date"),
+            last_payment_cents=_optional_cents(card.get("last_payment_amount")),
+            last_payment_date=card.get("last_payment_date"),
+            is_overdue=card.get("is_overdue"),
+        )
+        for card in (liabilities.get("liabilities") or {}).get("credit") or []
+        if card.get("account_id")
+    ]
 
 
 def parse_account(account: dict[str, Any]) -> AccountRecord:

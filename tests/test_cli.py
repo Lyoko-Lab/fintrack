@@ -26,13 +26,21 @@ def test_status_reports_sync_health_without_personal_data(
     monkeypatch.setenv("FINTRACK_ENV", settings.env)
     monkeypatch.setenv("FINTRACK_DATA_DIR", str(settings.data_dir))
     checking = add_account(db, "Adv Plus Banking", "depository", mask="4821", current_cents=123_456)
-    add_account(db, "Sapphire Preferred", "credit", mask="7781", current_cents=-5_678, institution="Chase")
+    card = add_account(db, "Sapphire Preferred", "credit", mask="7781", current_cents=-5_678, institution="Chase")
     add_txn(db, checking, -1_234, "2024-11-02", "SQ *BLUE BOTTLE")
     add_txn(db, checking, 250_000, "2026-10-15", "ACME PAYROLL PPD ID 99881")
+    db.execute(
+        """
+        INSERT INTO card_statements (account_id, statement_date, statement_cents, minimum_cents, due_date, updated_at)
+        VALUES (?, '2026-10-03', 98765, 4321, '2026-10-28', '2026-10-28T00:00:00Z')
+        """,
+        (card,),
+    )
 
     assert main(["status"]) == 0
     out = capsys.readouterr().out
-    assert "depository/-  交易 2 笔  2024-11-02 ~ 2026-10-15" in out
-    assert "credit/-  交易 0 笔  —" in out
-    for private in ("Adv Plus", "Sapphire", "4821", "7781", "1,234.56", "56.78", "BLUE BOTTLE", "PAYROLL"):
+    assert "depository/-  交易 2 笔  2024-11-02 ~ 2026-10-15\n" in out
+    assert "credit/-  交易 0 笔  —  有账单信息" in out
+    for private in ("Adv Plus", "Sapphire", "4821", "7781", "1,234.56", "56.78", "BLUE BOTTLE", "PAYROLL",
+                    "987.65", "43.21", "10-03", "10-28"):  # fmt: skip
         assert private not in out

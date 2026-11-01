@@ -121,6 +121,57 @@ def activity(
     return {"items": items, "next": {"before": items[-1]["transaction_date"], "before_id": items[-1]["id"]} if more else None}
 
 
+_PAYMENT_ORDER = {"overdue": 0, "due": 1, "paid": 2}
+
+
+def card_payments(conn: sqlite3.Connection, today: date) -> list[dict[str, Any]]:
+    """Each credit card's latest statement and what is still to pay on it, most urgent first.
+
+    Paid so far is what went into the card after the statement was issued: the card payments
+    in the ledger, or the bank's record of its last payment if that is larger (the ledger may
+    have filed a payment elsewhere). `state` is paid, overdue, or due.
+    """
+    rows = conn.execute(
+        """
+        SELECT a.id AS account_id, a.name AS account_name, a.mask AS account_mask, i.institution_name,
+               s.statement_date, s.statement_cents, s.minimum_cents, s.due_date,
+               s.last_payment_cents, s.last_payment_date, s.is_overdue,
+               (SELECT COALESCE(SUM(l.amount_cents), 0) FROM v_ledger l
+                WHERE l.account_id = a.id AND l.flow_type = 'transfer' AND l.amount_cents > 0
+                  AND l.transaction_date > s.statement_date) AS ledger_paid_cents
+        FROM card_statements s
+        JOIN accounts a ON a.id = s.account_id
+        JOIN items i ON i.id = a.item_id
+        WHERE a.type = 'credit'
+        """
+    ).fetchall()
+    payments = []
+    for row in rows:
+        payment = dict(row)
+        statement_date, last_date = payment["statement_date"], payment["last_payment_date"]
+        bank_paid = (payment["last_payment_cents"] or 0) if statement_date and last_date and last_date > statement_date else 0
+        paid = max(payment.pop("ledger_paid_cents"), bank_paid)
+        owed = payment["statement_cents"]
+        due = date.fromisoformat(payment["due_date"]) if payment["due_date"] else None
+        if owed is not None and paid >= owed:
+            state = "paid"
+        elif payment["is_overdue"] or (owed is not None and due is not None and due < today):
+            state = "overdue"
+        else:
+            state = "due"
+        payments.append(
+            {
+                **payment,
+                "is_overdue": None if payment["is_overdue"] is None else bool(payment["is_overdue"]),
+                "paid_cents": paid,
+                "remaining_cents": None if owed is None else max(owed - paid, 0),
+                "days_left": None if due is None else (due - today).days,
+                "state": state,
+            }
+        )
+    return sorted(payments, key=lambda p: (_PAYMENT_ORDER[p["state"]], p["due_date"] or "9999-12-31", p["account_id"]))
+
+
 def is_assignable(conn: sqlite3.Connection, category_id: str) -> bool:
     """Only the leaves of the taxonomy can be given to a transaction; the groups exist for totals."""
     row = conn.execute(

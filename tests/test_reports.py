@@ -8,7 +8,7 @@ from ledger_fakes import add_account, add_txn
 
 from fintrack.edits import InvalidEdit, edit_transaction
 from fintrack.enrich import enrich_all
-from fintrack.reports import activity, overview, same_day_last_month
+from fintrack.reports import activity, card_payments, overview, same_day_last_month
 
 TODAY = date(2026, 10, 28)
 
@@ -99,3 +99,45 @@ def test_only_leaf_categories_can_be_assigned(ledger: sqlite3.Connection):
         edit_transaction(ledger, coffee["id"], {"category_id": "dining"})
     with pytest.raises(InvalidEdit):
         edit_transaction(ledger, coffee["id"], {"category_id": "no.such.category"})
+
+
+def add_statement(db: sqlite3.Connection, account_id: int, *, owed: int | None, due: str | None, statement_date: str = "2026-10-03",
+                  minimum: int | None = 3500, last_payment: tuple[int, str] | None = None, overdue: bool | None = None) -> None:  # fmt: skip
+    db.execute(
+        """
+        INSERT INTO card_statements (account_id, statement_date, statement_cents, minimum_cents, due_date,
+                                     last_payment_cents, last_payment_date, is_overdue, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, '2026-10-28T00:00:00Z')
+        """,
+        (account_id, statement_date, owed, minimum, due, *(last_payment or (None, None)), overdue),
+    )
+
+
+def test_card_payments_say_what_is_left_to_pay_most_urgent_first(db: sqlite3.Connection):
+    checking = add_account(db, "Checking", "depository")
+    paid_in_ledger, partly_paid, paid_per_bank, late, unknown = (
+        add_account(db, name, "credit", institution=bank)
+        for name, bank in [("Paid in ledger", "Chase"), ("Partly paid", "Chase"), ("Paid per bank", "BOA"),
+                           ("Late", "Amex"), ("Unknown", "Amex")]
+    )  # fmt: skip
+    add_statement(db, paid_in_ledger, owed=50000, due="2026-11-02")
+    add_txn(db, checking, -50000, "2026-10-20", "CHASE CREDIT CRD DES:AUTOPAY")
+    add_txn(db, paid_in_ledger, 50000, "2026-10-21", "AUTOMATIC PAYMENT - THANK YOU")
+    add_statement(db, partly_paid, owed=80000, due="2026-11-15")
+    add_txn(db, partly_paid, 30000, "2026-10-12", "AUTOMATIC PAYMENT - THANK YOU")
+    add_txn(db, partly_paid, 99999, "2026-09-30", "AUTOMATIC PAYMENT - THANK YOU")  # before the statement: doesn't count
+    add_statement(db, paid_per_bank, owed=20000, due="2026-11-05", last_payment=(20000, "2026-10-09"))
+    add_statement(db, late, owed=12000, due="2026-10-25")
+    add_statement(db, unknown, owed=None, minimum=None, due=None)
+    enrich_all(db)
+
+    payments = card_payments(db, TODAY)
+    assert [p["account_name"] for p in payments] == ["Late", "Partly paid", "Unknown", "Paid in ledger", "Paid per bank"]
+    by_name = {p["account_name"]: p for p in payments}
+    assert (by_name["Late"]["state"], by_name["Late"]["days_left"]) == ("overdue", -3)
+    partly = by_name["Partly paid"]
+    assert (partly["state"], partly["paid_cents"], partly["remaining_cents"], partly["days_left"]) == ("due", 30000, 50000, 18)
+    assert (by_name["Paid in ledger"]["state"], by_name["Paid in ledger"]["remaining_cents"]) == ("paid", 0)
+    assert by_name["Paid per bank"]["state"] == "paid"
+    unknown_card = by_name["Unknown"]
+    assert (unknown_card["state"], unknown_card["remaining_cents"], unknown_card["days_left"]) == ("due", None, None)

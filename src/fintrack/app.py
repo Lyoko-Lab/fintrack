@@ -217,6 +217,10 @@ def create_app(
     def get_overview(db: Db) -> dict[str, Any]:
         return reports.overview(db, date.today())
 
+    @app.get("/api/card-payments")
+    def get_card_payments(db: Db) -> list[dict[str, Any]]:
+        return reports.card_payments(db, date.today())
+
     @app.get("/api/activity")
     def get_activity(
         db: Db,

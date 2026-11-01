@@ -97,7 +97,8 @@ def _status(args: argparse.Namespace) -> int:
         accounts = conn.execute(
             """
             SELECT a.type, a.subtype, COUNT(t.id) AS transaction_count,
-                   MIN(t.transaction_date) AS first_date, MAX(t.transaction_date) AS last_date
+                   MIN(t.transaction_date) AS first_date, MAX(t.transaction_date) AS last_date,
+                   EXISTS (SELECT 1 FROM card_statements s WHERE s.account_id = a.id) AS has_statement
             FROM accounts a
             LEFT JOIN transactions t ON t.account_id = a.id AND t.removed_at IS NULL
             WHERE a.item_id = ?
@@ -108,7 +109,9 @@ def _status(args: argparse.Namespace) -> int:
         )
         for a in accounts:
             span = f"{a['first_date']} ~ {a['last_date']}" if a["transaction_count"] else "—"
-            print(f"    {a['type']}/{a['subtype'] or '-'}  交易 {a['transaction_count']} 笔  {span}")
+            # Whether the bank gave a statement, not what is on it.
+            statement = ("  有账单信息" if a["has_statement"] else "  无账单信息") if a["type"] == "credit" else ""
+            print(f"    {a['type']}/{a['subtype'] or '-'}  交易 {a['transaction_count']} 笔  {span}{statement}")
     print("\n这里不显示账户名称、尾号、余额和交易明细，请在网页上查看。")
     return 0
 

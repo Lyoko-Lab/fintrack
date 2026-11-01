@@ -2,9 +2,23 @@ from decimal import Decimal
 
 import httpx2
 import pytest
-from plaid_fakes import FakePlaid, txn
+from plaid_fakes import FakePlaid, card, txn
 
-from fintrack.plaid import PlaidClient, PlaidError, parse_transaction, to_cents
+from fintrack.plaid import CardStatementRecord, PlaidClient, PlaidError, parse_card_statements, parse_transaction, to_cents
+
+
+def test_card_statements_come_from_the_credit_liabilities_only():
+    body = {
+        "liabilities": {
+            "credit": [card("acc-card", statement=Decimal("1234.56"), minimum=Decimal("35")), {"account_id": None}],
+            "mortgage": [{"account_id": "acc-home"}],
+            "student": None,
+        }
+    }
+    assert parse_card_statements(body) == [
+        CardStatementRecord("acc-card", "2026-10-03", 123456, 3500, "2026-10-28", 98010, "2026-09-26", False)
+    ]
+    assert parse_card_statements({"liabilities": {"credit": None}}) == []
 
 
 def test_to_cents_is_exact():

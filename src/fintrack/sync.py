@@ -20,6 +20,7 @@ from .db import transaction, utcnow
 from .enrich import enrich_all
 from .plaid import (
     AccountRecord,
+    CardStatementRecord,
     PlaidClient,
     PlaidError,
     PlaidResponse,
@@ -27,6 +28,7 @@ from .plaid import (
     TransactionRecord,
     fetch_transaction_changes,
     parse_account,
+    parse_card_statements,
 )
 
 log = logging.getLogger(__name__)
@@ -135,8 +137,9 @@ def _sync_item(conn: sqlite3.Connection, client: PlaidClient, item: sqlite3.Row,
             return _fail(conn, result, "error", "access token not found in Keychain")
         accounts = client.get_accounts(token)
         changes = fetch_transaction_changes(client, token, item["sync_cursor"])
+        liabilities = _fetch_liabilities(client, token, item["id"])
         with transaction(conn):
-            _apply(conn, item["id"], run_id, accounts, changes)
+            _apply(conn, item["id"], run_id, accounts, changes, liabilities)
     except PlaidError as e:
         status = "login_required" if e.error_code == "ITEM_LOGIN_REQUIRED" else "error"
         return _fail(conn, result, status, str(e))
@@ -149,6 +152,19 @@ def _sync_item(conn: sqlite3.Connection, client: PlaidClient, item: sqlite3.Row,
     return result
 
 
+def _fetch_liabilities(client: PlaidClient, token: str, item_id: int) -> PlaidResponse | None:
+    """Card statements and due dates, if this bank provides them.
+
+    They add to the sync rather than being part of it: a bank without Liabilities, an Item
+    with no credit cards, or data that isn't ready yet only means no statements this time.
+    """
+    try:
+        return client.get_liabilities(token)
+    except PlaidError as e:
+        log.info("no card statements for item %s: %s", item_id, e.error_code)
+        return None
+
+
 def _fail(conn: sqlite3.Connection, result: ItemResult, status: str, error: str) -> ItemResult:
     result.error = error
     with transaction(conn):
@@ -157,13 +173,19 @@ def _fail(conn: sqlite3.Connection, result: ItemResult, status: str, error: str)
 
 
 def _apply(
-    conn: sqlite3.Connection, item_id: int, run_id: int, accounts: PlaidResponse, changes: TransactionChanges
+    conn: sqlite3.Connection,
+    item_id: int,
+    run_id: int,
+    accounts: PlaidResponse,
+    changes: TransactionChanges,
+    liabilities: PlaidResponse | None = None,
 ) -> None:
     now = utcnow()
     conn.executemany(
         "INSERT INTO raw_events (sync_run_id, item_id, endpoint, payload, received_at) VALUES (?, ?, ?, ?, ?)",
         [(run_id, item_id, "/accounts/get", accounts.raw, now)]
-        + [(run_id, item_id, "/transactions/sync", page, now) for page in changes.pages],
+        + [(run_id, item_id, "/transactions/sync", page, now) for page in changes.pages]
+        + ([(run_id, item_id, "/liabilities/get", liabilities.raw, now)] if liabilities else []),
     )
 
     # /accounts/get is authoritative; sync pages only fill in accounts it didn't list.
@@ -184,6 +206,9 @@ def _apply(
         "UPDATE transactions SET removed_at = ?, updated_at = ? WHERE external_id = ? AND removed_at IS NULL",
         [(now, now, external_id) for external_id in changes.removed],
     )
+    for statement in parse_card_statements(liabilities.body) if liabilities else []:
+        if statement.account_external_id in account_ids:
+            _upsert_card_statement(conn, account_ids[statement.account_external_id], statement, now)
 
     # An empty next_cursor means Plaid had nothing ready yet: keep the old cursor and try again later.
     conn.execute(
@@ -222,6 +247,23 @@ def _upsert_account(conn: sqlite3.Connection, item_id: int, account: AccountReco
             limit_cents = excluded.limit_cents, captured_at = excluded.captured_at
         """,
         (account_id, date.today().isoformat(), account.current_cents, account.available_cents, account.limit_cents, now),
+    )
+
+
+def _upsert_card_statement(conn: sqlite3.Connection, account_id: int, statement: CardStatementRecord, now: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO card_statements (account_id, statement_date, statement_cents, minimum_cents, due_date,
+                                     last_payment_cents, last_payment_date, is_overdue, updated_at)
+        VALUES (:account_id, :statement_date, :statement_cents, :minimum_cents, :due_date,
+                :last_payment_cents, :last_payment_date, :is_overdue, :now)
+        ON CONFLICT (account_id) DO UPDATE SET
+            statement_date = excluded.statement_date, statement_cents = excluded.statement_cents,
+            minimum_cents = excluded.minimum_cents, due_date = excluded.due_date,
+            last_payment_cents = excluded.last_payment_cents, last_payment_date = excluded.last_payment_date,
+            is_overdue = excluded.is_overdue, updated_at = excluded.updated_at
+        """,
+        {**asdict(statement), "account_id": account_id, "now": now},
     )
 
 
