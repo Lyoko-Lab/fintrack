@@ -133,3 +133,7 @@ The web app comes in English and Simplified Chinese. Switch at the bottom of the
 Data lives in `data/`, which is in `.gitignore`. Sandbox and Production each have their own database file, so test data never mixes into your real ledger.
 
 For the privacy design, see section 8 of [docs/DESIGN.md](docs/DESIGN.md): real data stays on this Mac by default, and developing with Claude Code doesn't read it either (the rules are in [CLAUDE.md](CLAUDE.md)).
+
+## License
+
+Fintrack is free software under the [GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`). You can use, study, change and share it. If you distribute a modified version, or let other people use one over a network, you have to offer them its source code under the same license.

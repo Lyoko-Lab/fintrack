@@ -133,3 +133,7 @@ uv run fintrack service install
 数据在 `data/` 目录（已加入 `.gitignore`），Sandbox 和 Production 各用一个数据库文件，测试数据不会混进真实账本。
 
 隐私设计见 [docs/DESIGN.zh-CN.md](docs/DESIGN.zh-CN.md) 第 8 节：真实数据默认只留在本机，用 Claude Code 开发时也不会读取它（规则在 [CLAUDE.md](CLAUDE.md)）。
+
+## 许可证
+
+Fintrack 是自由软件，以 [GNU Affero 通用公共许可证 v3.0](LICENSE)（`AGPL-3.0-only`）发布。你可以使用、研究、修改和分享它；如果分发修改后的版本，或者让别人通过网络使用修改后的版本，就要按同一许可证向他们提供源代码。
