@@ -15,23 +15,23 @@ import sys
 
 PRODUCTION_SERVER = (
     re.compile(r"(?:127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\]):8787(?!\d)"),
-    "正式环境的网页和 API（端口 8787）",
+    "the production web app and API (port 8787)",
 )
 SHELL_RULES = (
     (
         re.compile(r"(?:^|[\s'\"=(;|&<>])(?:\./)?data/|\bcd\s+(?:\./)?data\b|(?:fintrack|PROJECT_DIR\}?)/data\b"),
-        "data/ 目录（数据库和日志）",
+        "the data/ folder (databases and logs)",
     ),
     (
         re.compile(r"\bsqlite3\b|fintrack-production|\.db(?:-wal|-shm)?\b|\bopen_db\s*\(|\.db_path\b"),
-        "账本数据库",
+        "the ledger database",
     ),
     (
         re.compile(
             r"\bsecurity\s+(?:find-generic-password|find-internet-password|dump-keychain|export)\b"
             r"|\bkeyring\s+get\b|\bget_(?:secret|access_token)\s*\("
         ),
-        "Keychain 里的密钥",
+        "secrets in the Keychain",
     ),
     PRODUCTION_SERVER,
 )
@@ -54,7 +54,8 @@ def main() -> int:
     if what is None:
         return 0
     print(
-        f"已拦截：这个操作会接触{what}。真实财务数据不能进入 Claude Code 的对话，规则见 CLAUDE.md「隐私」一节。",
+        f"Blocked: this would touch {what}. Real financial data stays out of Claude Code sessions; "
+        "see the Privacy section of CLAUDE.md.",
         file=sys.stderr,
     )
     return 2

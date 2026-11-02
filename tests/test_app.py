@@ -82,7 +82,7 @@ def test_rules_through_the_api(settings: Settings, plaid: FakePlaid, db: sqlite3
     created = api.post("/api/rules", json={"match_field": "merchant", "pattern": "Netflix", "category_id": "bills.subscriptions"})
     assert created.status_code == 200
     rule = created.json()
-    assert (rule["category_name"], rule["direction"], rule["transaction_count"]) == ("订阅会员", None, 1)
+    assert (rule["category_name"], rule["direction"], rule["transaction_count"]) == ("Subscriptions", None, 1)
     row = api.get("/api/activity").json()["items"][0]
     assert (row["category_id"], row["category_rule"], row["user_rule_pattern"]) == ("bills.subscriptions", "user_rule", "Netflix")
 

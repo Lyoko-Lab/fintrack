@@ -86,15 +86,15 @@ def _condition(match_field: str, pattern: str, direction: str | None) -> tuple[s
         raise InvalidRule(f"direction must be one of {DIRECTIONS} or null")
     pattern = " ".join(pattern.split())
     if not pattern:
-        raise InvalidRule("规则内容不能为空")
+        raise InvalidRule("A rule needs a merchant name or a keyword")
     if len(pattern) > MAX_PATTERN_LENGTH:
-        raise InvalidRule(f"规则内容不能超过 {MAX_PATTERN_LENGTH} 个字符")
+        raise InvalidRule(f"A rule's merchant name or keyword can be at most {MAX_PATTERN_LENGTH} characters")
     return match_field, pattern, direction
 
 
 def _check_category(conn: sqlite3.Connection, category_id: str) -> None:
     if not is_assignable(conn, category_id):
-        raise InvalidRule(f"{category_id!r} 不是可以直接使用的分类")
+        raise InvalidRule(f"{category_id!r} is not a category a transaction can have")
 
 
 def _same_condition(conn: sqlite3.Connection, match_field: str, pattern: str, direction: str | None) -> int | None:
@@ -136,11 +136,11 @@ def update_rule(conn: sqlite3.Connection, rule_id: int, changes: dict[str, Any])
             raise UnknownRule(rule_id)
         merged = {name: current[name] for name in EDITABLE_FIELDS} | changes
         if merged["category_id"] is None:
-            raise InvalidRule("规则必须有分类")
+            raise InvalidRule("A rule needs a category")
         _, pattern, direction = _condition(current["match_field"], merged["pattern"] or "", merged["direction"])
         _check_category(conn, merged["category_id"])
         if _same_condition(conn, current["match_field"], pattern, direction) not in (None, rule_id):
-            raise InvalidRule("已经有一条条件相同的规则")
+            raise InvalidRule("Another rule already has this condition")
         conn.execute(
             "UPDATE category_rules SET pattern = ?, direction = ?, category_id = ?, updated_at = ? WHERE id = ?",
             (pattern, direction, merged["category_id"], utcnow(), rule_id),

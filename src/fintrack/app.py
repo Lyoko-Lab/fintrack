@@ -25,10 +25,10 @@ from .scheduler import Scheduler
 
 log = logging.getLogger(__name__)
 
-FRONTEND_MISSING = """<!doctype html><meta charset="utf-8"><title>Fintrack</title>
+FRONTEND_MISSING = """<!doctype html><html lang="en"><meta charset="utf-8"><title>Fintrack</title>
 <body style="font: 15px/1.6 -apple-system, 'PingFang SC', sans-serif; max-width: 560px; margin: 80px auto; padding: 0 16px">
-<h1 style="font-size: 20px">前端还没有构建</h1>
-<p>在项目目录运行下面两条命令，然后刷新本页：</p>
+<h1 style="font-size: 20px">The web app isn't built yet</h1>
+<p>Run these two commands in the project folder, then reload this page.<br>在项目目录运行下面两条命令，然后刷新本页。</p>
 <pre style="background: #f2f2f0; padding: 12px; border-radius: 8px">npm --prefix web install
 npm --prefix web run build</pre></body>"""
 
@@ -129,7 +129,7 @@ def create_app(
 
     @app.exception_handler(items.MissingAccessToken)
     async def missing_token(request: Request, exc: items.MissingAccessToken) -> JSONResponse:
-        detail = f"item {exc} 的 access token 不在 Keychain 里，只能重新连接这家银行"
+        detail = f"The access token for item {exc} isn't in the Keychain; this bank has to be connected again"
         return JSONResponse({"detail": detail}, status_code=409)
 
     # Background jobs run after the response is sent and open their own connection.
@@ -196,7 +196,7 @@ def create_app(
     @app.post("/api/sync", status_code=202)
     def start_sync(background: BackgroundTasks, plaid: Plaid) -> dict[str, bool]:
         if sync.is_running():
-            raise HTTPException(409, "同步正在进行中")
+            raise HTTPException(409, "A sync is already running")
         background.add_task(sync_job, plaid, "manual")
         return {"started": True}
 

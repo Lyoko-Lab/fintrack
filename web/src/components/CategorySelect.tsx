@@ -1,6 +1,5 @@
 import type { Category } from "../api";
-
-const KIND_HINT: Record<Category["kind"], string> = { expense: "", income: "", transfer: "（不计入收支）" };
+import { categoryName, useI18n } from "../i18n";
 
 interface CategorySelectProps {
   categories: Category[];
@@ -15,7 +14,10 @@ interface CategorySelectProps {
 
 /** Categories grouped under their parents, in the taxonomy's own order. */
 export function CategorySelect({ categories, value, onChange, allowGroups, placeholder, id, label }: CategorySelectProps) {
+  const { t } = useI18n();
   const children = (parentId: string) => categories.filter((c) => c.parent_id === parentId);
+  // Transfers are categorized like everything else, but never count as income or spending.
+  const kindHint = (kind: Category["kind"]) => (kind === "transfer" ? t.categorySelect.notCounted : "");
   return (
     <select id={id} aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
       {placeholder !== undefined && <option value="">{placeholder}</option>}
@@ -26,17 +28,17 @@ export function CategorySelect({ categories, value, onChange, allowGroups, place
           if (leaves.length === 0) {
             return (
               <option key={top.id} value={top.id}>
-                {top.name}
-                {KIND_HINT[top.kind]}
+                {categoryName(top)}
+                {kindHint(top.kind)}
               </option>
             );
           }
           return (
-            <optgroup key={top.id} label={`${top.name}${KIND_HINT[top.kind]}`}>
-              {allowGroups && <option value={top.id}>全部{top.name}</option>}
+            <optgroup key={top.id} label={`${categoryName(top)}${kindHint(top.kind)}`}>
+              {allowGroups && <option value={top.id}>{t.categorySelect.all(categoryName(top))}</option>}
               {leaves.map((leaf) => (
                 <option key={leaf.id} value={leaf.id}>
-                  {leaf.name}
+                  {categoryName(leaf)}
                 </option>
               ))}
             </optgroup>

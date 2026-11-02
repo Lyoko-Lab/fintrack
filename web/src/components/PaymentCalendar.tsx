@@ -1,9 +1,9 @@
 import { useState } from "react";
 import type { CardPayment } from "../api";
 import { compactMoney, dayHeading, money, shortDay } from "../format";
+import { useI18n } from "../i18n";
 import { DueState } from "./DueState";
 
-const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
 const MIN_WEEKS = 5;
 const MAX_WEEKS = 7;
 const LEVELS = 4; // shades of the one hue: the more owed that day, the bluer
@@ -23,6 +23,7 @@ const cardName = (p: CardPayment) => `${p.account_name}${p.account_mask ? ` ··
 
 /** One card's payment: which card, how it stands, what is left to pay. */
 export function PaymentLine({ payment }: { payment: CardPayment }) {
+  const { t } = useI18n();
   return (
     <li className="payment-row">
       <div className="payment-main">
@@ -33,39 +34,43 @@ export function PaymentLine({ payment }: { payment: CardPayment }) {
         </span>
         <span className="payment-meta">
           <DueState payment={payment} />
-          {payment.minimum_cents ? <span>最低还款 {money(payment.minimum_cents)}</span> : null}
+          {payment.minimum_cents ? <span>{t.payments.minimum(money(payment.minimum_cents))}</span> : null}
         </span>
       </div>
       <div className="payment-amount">
         <strong>{money(payment.remaining_cents)}</strong>
         <span>
           {payment.paid_cents > 0 && payment.statement_cents !== null
-            ? `账单 ${money(payment.statement_cents)}，已还 ${money(payment.paid_cents)}`
-            : "本期应还"}
+            ? t.payments.statementPaid(money(payment.statement_cents), money(payment.paid_cents))
+            : t.payments.statementBalance}
         </span>
       </div>
     </li>
   );
 }
 
-const LEGEND = (
-  <div className="cal-legend" aria-hidden="true">
-    <span className="cal-ramp">
-      少
-      {Array.from({ length: LEVELS }, (_, i) => (
-        <i key={i} className={`heat-${i + 1}`} />
-      ))}
-      多
-    </span>
-    <span>
-      <i className="cal-swatch settled-swatch">✓</i>已还清
-    </span>
-    <span>
-      <i className="cal-swatch today-swatch" />
-      今天
-    </span>
-  </div>
-);
+function Legend() {
+  const { t } = useI18n();
+  return (
+    <div className="cal-legend" aria-hidden="true">
+      <span className="cal-ramp">
+        {t.payments.less}
+        {Array.from({ length: LEVELS }, (_, i) => (
+          <i key={i} className={`heat-${i + 1}`} />
+        ))}
+        {t.payments.more}
+      </span>
+      <span>
+        <i className="cal-swatch settled-swatch">✓</i>
+        {t.payments.paid}
+      </span>
+      <span>
+        <i className="cal-swatch today-swatch" />
+        {t.payments.today}
+      </span>
+    </div>
+  );
+}
 
 /**
  * The coming weeks as a mosaic of day tiles, from this week's Monday until the last due date
@@ -74,6 +79,7 @@ const LEGEND = (
  * it reads as "how much", while how a payment stands (overdue, paid) is spelled out in words.
  */
 export function PaymentCalendar({ payments }: { payments: CardPayment[] }) {
+  const { t } = useI18n();
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const todayIso = isoDay(today);
@@ -114,7 +120,7 @@ export function PaymentCalendar({ payments }: { payments: CardPayment[] }) {
     // The month goes on its own small line, where the grid starts and where a month begins.
     const label = (
       <span className="cal-day">
-        {(index === 0 || day.getDate() === 1) && <span className="cal-month">{day.getMonth() + 1}月</span>}
+        {(index === 0 || day.getDate() === 1) && <span className="cal-month">{t.dates.monthTick(day.getMonth())}</span>}
         {day.getDate()}
       </span>
     );
@@ -125,19 +131,19 @@ export function PaymentCalendar({ payments }: { payments: CardPayment[] }) {
         </div>
       );
     }
-    const summary = settled ? "已还清" : `待还 ${money(amount)}`;
+    const summary = settled ? t.payments.allPaid : t.payments.toPay(money(amount));
     return (
       <button
         key={key}
         type="button"
         className={className}
         aria-pressed={key === selected}
-        aria-label={`${shortDay(key)}到期：${due.length} 张卡，${summary}${due.some((p) => p.state === "overdue") ? "，有逾期" : ""}`}
+        aria-label={t.payments.tile(shortDay(key), due.length, summary, due.some((p) => p.state === "overdue"))}
         onClick={() => setSelected(key)}
       >
         {label}
         <span className="cal-amount">{settled ? "✓" : tileMoney(amount)}</span>
-        <span className="cal-count">{due.length} 张卡</span>
+        <span className="cal-count">{t.payments.cards(due.length)}</span>
       </button>
     );
   };
@@ -147,29 +153,26 @@ export function PaymentCalendar({ payments }: { payments: CardPayment[] }) {
       {overdue.length > 0 && (
         <p className="notice error">
           <span aria-hidden="true">! </span>
-          已逾期：{overdue.map((p) => `${cardName(p)} ${money(p.remaining_cents)}`).join("、")}
+          {t.payments.overdueList(t.common.list(overdue.map((p) => `${cardName(p)} ${money(p.remaining_cents)}`)))}
         </p>
       )}
 
       <div className="payment-calendar-body">
         <div className="calendar-wrap">
-          <div className="calendar" role="group" aria-label="还款日历">
-            {WEEKDAYS.map((name) => (
-              <span key={name} className="cal-weekday" aria-hidden="true">
+          <div className="calendar" role="group" aria-label={t.payments.calendar}>
+            {t.dates.weekdaysFromMonday.map((name, index) => (
+              <span key={index} className="cal-weekday" aria-hidden="true">
                 {name}
               </span>
             ))}
             {Array.from({ length: weeks * 7 }, (_, index) => tile(index))}
           </div>
-          {LEGEND}
+          <Legend />
         </div>
 
         {selected && chosen.length > 0 && (
           <div className="cal-details">
-            <h3>
-              {dayHeading(selected)}到期 · {chosen.length} 张卡
-              {owed(chosen) > 0 ? ` · 待还 ${money(owed(chosen))}` : ""}
-            </h3>
+            <h3>{t.payments.day(dayHeading(selected), chosen.length, owed(chosen) > 0 ? money(owed(chosen)) : null)}</h3>
             <ul className="payments">
               {chosen.map((payment) => (
                 <PaymentLine key={payment.account_id} payment={payment} />
@@ -179,9 +182,7 @@ export function PaymentCalendar({ payments }: { payments: CardPayment[] }) {
         )}
       </div>
 
-      {undated.length > 0 && (
-        <p className="payments-footnote">还款日未知：{undated.map(cardName).join("、")}</p>
-      )}
+      {undated.length > 0 && <p className="payments-footnote">{t.payments.undated(t.common.list(undated.map(cardName)))}</p>}
     </div>
   );
 }

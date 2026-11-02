@@ -1,8 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type LedgerRow } from "./api";
+import { LanguageSwitch } from "./components/LanguageSwitch";
 import { TransactionDrawer } from "./components/TransactionDrawer";
 import { whenLabel } from "./format";
+import { useI18n } from "./i18n";
 import { AccountsPage } from "./pages/Accounts";
 import { ActivityPage } from "./pages/Activity";
 import { InsightsPage } from "./pages/Insights";
@@ -12,15 +14,12 @@ import { invalidateLedger } from "./queries";
 import { Link, useRoute, useScrollRestoration, type Route } from "./router";
 import { statusRefetchInterval } from "./syncPolling";
 
-const NAV: { route: Route; label: string }[] = [
-  { route: "overview", label: "总览" },
-  { route: "activity", label: "交易流" },
-  { route: "insights", label: "分析" },
-  { route: "rules", label: "规则" },
-  { route: "accounts", label: "账户" },
-];
+const NAV: Route[] = ["overview", "activity", "insights", "rules", "accounts"];
 
 export function App() {
+  // Reading the language here renders the whole app again when it changes, labels formatted
+  // outside components (format.ts) included.
+  const { t } = useI18n();
   const route = useRoute();
   useScrollRestoration();
   const queryClient = useQueryClient();
@@ -52,23 +51,26 @@ export function App() {
           </svg>
           <span className="brand-name">Fintrack</span>
         </div>
-        <nav aria-label="主导航">
+        <nav aria-label={t.nav.label}>
           {NAV.map((item) => (
-            <Link key={item.route} to={item.route} className="nav-link" current={item.route === route}>
-              {item.label}
+            <Link key={item} to={item} className="nav-link" current={item === route}>
+              {t.nav[item]}
             </Link>
           ))}
         </nav>
-        {status.data && (
-          <div className="sidebar-footer">
-            <span className={`env-badge ${status.data.env}`}>{status.data.env === "production" ? "真实账户" : "Sandbox 测试数据"}</span>
-            <span>{status.data.syncing ? "正在同步…" : `上次同步 ${whenLabel(status.data.last_success_at)}`}</span>
-          </div>
-        )}
+        <div className="sidebar-footer">
+          {status.data && (
+            <div className="sync-status">
+              <span className={`env-badge ${status.data.env}`}>{t.shell.env[status.data.env]}</span>
+              <span>{status.data.syncing ? t.sync.running : t.sync.last(whenLabel(status.data.last_success_at))}</span>
+            </div>
+          )}
+          <LanguageSwitch />
+        </div>
       </aside>
 
       <main className="content">
-        {status.error && <p className="notice error">连不上 Fintrack 服务：{status.error.message}</p>}
+        {status.error && <p className="notice error">{t.shell.unreachable(status.error.message)}</p>}
         {route === "overview" && <OverviewPage status={status.data} onSelect={setSelected} />}
         {route === "activity" && <ActivityPage onSelect={setSelected} />}
         {route === "insights" && <InsightsPage />}

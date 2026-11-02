@@ -4,7 +4,10 @@ import { api, type ActivityFilters, type Cursor, type FlowType, type LedgerRow }
 import { CategorySelect } from "../components/CategorySelect";
 import { TransactionList } from "../components/TransactionList";
 import { rangeLabel } from "../format";
+import { useI18n } from "../i18n";
 import { ROUTES } from "../router";
+
+const FLOW_TYPES: FlowType[] = ["expense", "income", "transfer"];
 
 /** Filters another page can open this one with, e.g. /activity?category=dining&from=2026-10-01&to=2026-10-28. */
 function linkedFilters() {
@@ -14,6 +17,7 @@ function linkedFilters() {
 }
 
 export function ActivityPage({ onSelect }: { onSelect(row: LedgerRow): void }) {
+  const { t } = useI18n();
   const [linked] = useState(linkedFilters);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
@@ -60,27 +64,33 @@ export function ActivityPage({ onSelect }: { onSelect(row: LedgerRow): void }) {
     <>
       <header className="page-header">
         <div>
-          <h1>交易流</h1>
-          <p className="page-subtitle">所有账户的交易合在一起，按日期排列。转账照常显示，但不计入收支。</p>
+          <h1>{t.activity.title}</h1>
+          <p className="page-subtitle">{t.activity.subtitle}</p>
         </div>
       </header>
 
       <div className="filters" role="search">
         <input
           type="search"
-          placeholder="搜索商户、银行描述或备注"
-          aria-label="搜索交易"
+          placeholder={t.activity.search}
+          aria-label={t.activity.searchLabel}
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
-        <select aria-label="类型" value={flowType} onChange={(event) => setFlowType(event.target.value as FlowType | "")}>
-          <option value="">全部类型</option>
-          <option value="expense">支出</option>
-          <option value="income">收入</option>
-          <option value="transfer">转账</option>
+        <select
+          aria-label={t.activity.type}
+          value={flowType}
+          onChange={(event) => setFlowType(event.target.value as FlowType | "")}
+        >
+          <option value="">{t.activity.allTypes}</option>
+          {FLOW_TYPES.map((flow) => (
+            <option key={flow} value={flow}>
+              {t.flow[flow]}
+            </option>
+          ))}
         </select>
-        <select aria-label="账户" value={accountId} onChange={(event) => setAccountId(event.target.value)}>
-          <option value="">全部账户</option>
+        <select aria-label={t.activity.account} value={accountId} onChange={(event) => setAccountId(event.target.value)}>
+          <option value="">{t.activity.allAccounts}</option>
           {accounts.data?.map((account) => (
             <option key={account.id} value={account.id}>
               {account.institution_name} · {account.name}
@@ -93,20 +103,20 @@ export function ActivityPage({ onSelect }: { onSelect(row: LedgerRow): void }) {
           value={categoryId}
           onChange={setCategoryId}
           allowGroups
-          placeholder="全部分类"
-          label="分类"
+          placeholder={t.activity.allCategories}
+          label={t.activity.category}
         />
         {range && (
           <span className="filter-chip">
             {rangeLabel(range.from, range.to)}
-            <button type="button" aria-label="不限日期" onClick={() => setRange(null)}>
+            <button type="button" aria-label={t.activity.clearDates} onClick={() => setRange(null)}>
               ×
             </button>
           </span>
         )}
         {filtered && (
           <button type="button" onClick={reset}>
-            清除筛选
+            {t.activity.clear}
           </button>
         )}
       </div>
@@ -116,7 +126,7 @@ export function ActivityPage({ onSelect }: { onSelect(row: LedgerRow): void }) {
         {rows.length > 0 ? (
           <TransactionList rows={rows} onSelect={onSelect} />
         ) : (
-          <p className="empty">{feed.isPending ? "加载中…" : filtered ? "没有符合条件的交易" : "还没有交易"}</p>
+          <p className="empty">{feed.isPending ? t.common.loading : filtered ? t.activity.noMatches : t.common.noTransactions}</p>
         )}
         {feed.hasNextPage && (
           <button
@@ -125,7 +135,7 @@ export function ActivityPage({ onSelect }: { onSelect(row: LedgerRow): void }) {
             disabled={feed.isFetchingNextPage}
             onClick={() => void feed.fetchNextPage()}
           >
-            {feed.isFetchingNextPage ? "加载中…" : "加载更多"}
+            {feed.isFetchingNextPage ? t.common.loading : t.activity.loadMore}
           </button>
         )}
       </section>

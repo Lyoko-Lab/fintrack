@@ -1,5 +1,6 @@
 // Typed client for the Fintrack API (src/fintrack/app.py). Money is always integer cents,
 // signed from the owner's point of view: money in > 0, money out < 0.
+import { serverError } from "./i18n";
 
 export type FlowType = "income" | "expense" | "transfer";
 export type ItemStatus = "active" | "login_required" | "error";
@@ -216,8 +217,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const body = await response.json().catch(() => null);
   if (!response.ok) {
     const detail = body?.detail;
-    const message = typeof detail === "string" ? detail : Array.isArray(detail) ? detail.map((d) => d.msg).join("；") : null;
-    throw new Error(message ?? `${response.status} ${response.statusText}`);
+    const message = typeof detail === "string" ? detail : Array.isArray(detail) ? detail.map((d) => d.msg).join("; ") : null;
+    throw new Error(message ? serverError(message) : `${response.status} ${response.statusText}`);
   }
   return body as T;
 }

@@ -1,36 +1,40 @@
-# Fintrack 设计文档
+# Fintrack design
 
-个人财务系统：每天自动同步 BOA、Chase、Amex 的全部交易，合并成统一账本，提供收支分析和基于 Claude 的问答。本地部署，网页界面。
+English | [简体中文](DESIGN.zh-CN.md)
 
-**已确认的决定（2026-10-28）**：数据源用 Plaid Trial；后端 Python，前端 React；历史数据拉 2 年；朋友转回的 AA 款冲减对应分类的支出，不算收入。暂不纳入投资账户。
+A personal finance system: every day it syncs all transactions from BOA, Chase and Amex into one ledger, with income and spending analysis and Q&A powered by Claude. It runs locally, with a web interface.
 
-## 1. 产品功能
+**Decisions confirmed (2026-10-28)**: Plaid Trial as the data source; a Python backend and a React frontend; 2 years of history; money friends pay back for a shared expense offsets spending in its category instead of counting as income. Investment accounts are left out for now.
 
-| 功能 | 说明 |
+## 1. Features
+
+| Feature | What it does |
 |---|---|
-| **Overview** | 首页：Income MTD、Spending MTD、Net Cash Position 三张指标卡（附"比上月同期"），然后是信用卡还款日历，下面接 Activity |
-| **Activity** | 7 个账户的交易按日期合并成一条流水；转账照常显示，加 ⇄ 标记，但不计入收支 |
-| **Insights** | 按日、周、月、年看现金流趋势、支出结构、同期对比和变化来源 |
-| **Ask Fintrack** | 用 Claude 对全部交易做对话式分析 |
-| **Accounts** | 余额、信用额度、信用卡本期账单和还款日、连接状态、重新授权 |
-| **Rules** | 分类规则；你手动改分类时可以一键生成 |
+| **Overview** | Home page: three headline tiles, Income MTD, Spending MTD and Net Cash Position (each compared with the same point last month), then the credit card payment calendar, then recent transactions |
+| **Transactions** | The 7 accounts' transactions in one feed by date (called Activity in the code, at `/activity`); transfers are listed with a ⇄ mark but don't count as income or spending |
+| **Insights** | Cash flow trends, where the money goes, comparisons with earlier periods and what drove the change, by day, week, month or year |
+| **Ask Fintrack** | Conversational analysis of all transactions with Claude |
+| **Accounts** | Balances, credit limits, each card's statement and due date, connection status, renewing consent |
+| **Rules** | Category rules; changing a category by hand can make one in a click |
 
-指标口径：
+Definitions:
 
-- **Income MTD**：本月 1 日至今，`flow_type = income` 的金额之和
-- **Spending MTD**：本月 1 日至今，`flow_type = expense` 的流出之和，再减去退款（支出类别里的正数）。待入账交易也计入
-- **Net Cash Position**：存款账户当前余额之和，减去信用卡当前欠款之和
-- **信用卡还款**：每张卡的本期账单金额、最低还款和还款日都来自银行（见第 3 节）。"已还"指账单日之后转入这张卡的钱，取账本里记为信用卡还款的金额和银行记录的上次还款中较大的一个，因为账本可能把某笔还款归到了别处。已还金额不少于账单金额，就是"已还清"；过了还款日还没还清，或者银行标记为逾期，就是"已逾期"。总览用日历展示：从本周一开始，至少 5 周、最多 7 周，每天一格，以覆盖到最后一个还款日为准。有还款的那天按当天待还金额着色：把图表的蓝色按 18%、34%、50%、66% 混进格子底色，分 4 档，金额越多越蓝。用混色而不是纯色，浅色和深色模式下都不刺眼，正文颜色在每一档上都清晰可读（对比度至少 5.5:1）。已还清的打勾，今天加描边，逾期的卡在日历上方单独提示。点某一天，日历旁边（手机上是下方）列出当天到期的每张卡，标题旁写待还合计
-- **对比口径**：收入和支出与"上月同期"比（上月 1 日到上月同一天，月底日期自动截到上月最后一天）。净现金头寸与"上月同日"比。聚合商只提供当前余额，所以过去某天的头寸用倒推计算：当前头寸减去那天之后所有已入账交易的金额之和。两个已关联账户之间的转账一出一进，正好抵消。上月值为零或负数时，不显示百分比
+- **Income MTD**: the sum of `flow_type = income` from the 1st of this month to today
+- **Spending MTD**: the outflows with `flow_type = expense` from the 1st of this month to today, less refunds (positive amounts in spending categories). Pending transactions count
+- **Net Cash Position**: the current balances of the deposit accounts, less the current balances owed on the credit cards
+- **Card payments**: each card's statement balance, minimum payment and due date come from the bank (see section 3). "Paid" is the money paid into the card since the statement date: the larger of the card payments in the ledger and the last payment the bank reports, as the ledger may have put a payment somewhere else. A statement is paid once that covers its balance, and overdue when the due date passes before then, or when the bank marks it overdue. The Overview shows a calendar: from this week's Monday, one tile a day, for at least 5 and at most 7 weeks, far enough to reach the last due date. A day with payments due is shaded by how much is still owed that day: the chart blue mixed into the tile color at 18%, 34%, 50% and 66%, four steps, bluer the more is owed. Mixed rather than solid, it stays soft in light and dark mode alike, and body text stays readable on every step (contrast at least 5.5:1). A paid day gets a check mark, today an outline, and overdue cards a notice of their own above the calendar. Clicking a day lists the cards due that day beside the calendar (below it on a phone), with the total still owed next to the heading
+- **Comparisons**: income and spending are compared with the same period last month (from the 1st of last month to the same day; a day beyond the end of last month becomes its last day). Net cash position is compared with the same day last month. Aggregators only provide current balances, so a past day's position is worked out backwards: the current position less the sum of all posted transactions since that day. A transfer between two connected accounts goes out of one and into the other, so it cancels out. When last month's value is zero or negative, no percentage is shown
 
-## 2. 架构
+**Languages**: English is the source language, and the web app also comes in Simplified Chinese. The switch is at the bottom of the sidebar (at the end of the top bar on a phone); the browser remembers the choice, and the first visit follows the browser's language. Every string the web app shows is in `web/src/i18n/en.ts`; a translation such as `zh.ts` must have the same shape, so the type check fails until it is complete. Dates and comparisons are phrased per language as well. Category names are stored in English and translated by category id; the few server error messages a user can run into are translated by their English text. The command line, logs and API stay in English.
+
+## 2. Architecture
 
 ```
 BOA · Chase · Amex
-   │  OAuth（银行密码只在 Plaid 弹窗里输入，Fintrack 拿不到）
+   │  OAuth (bank passwords are only typed into Plaid's pop-up; Fintrack never sees them)
    ▼
 Plaid API
-   │  每日拉取 /transactions/sync（cursor 增量）
+   │  /transactions/sync, daily (incremental, by cursor)
    ▼
 ┌─ Fintrack backend · single process · 127.0.0.1 ──────────
 │  Scheduler ──► Sync Engine ──► Connectors (Plaid | CSV)
@@ -48,139 +52,140 @@ Plaid API
         Browser (React SPA)
 ```
 
-- **单进程**：一个 FastAPI 进程同时提供 API、托管前端、跑定时任务，交给 launchd 管理。只监听 127.0.0.1，并校验 Host 头，防止 DNS rebinding。
-- **SQLite（WAL 模式）**：表结构写在编号的 SQL 迁移文件里，版本号记在 `PRAGMA user_version`。数据访问直接写 SQL，不用 ORM：分析视图本身就是 SQL，Ask 时 Claude 查的也是这些视图。
-- **定时拉取，不用 webhook**：本地没有公网地址，收不到 Plaid 的 webhook。
+- **One process**: a single FastAPI process serves the API and the frontend and runs the scheduled jobs, managed by launchd. It only listens on 127.0.0.1 and checks the Host header, against DNS rebinding.
+- **SQLite (WAL mode)**: the schema is in numbered SQL migration files, with the version kept in `PRAGMA user_version`. Data access is plain SQL, with no ORM: the analytics views are SQL anyway, and they're also what Claude queries for Ask.
+- **Polling, not webhooks**: running locally, there's no public address for Plaid's webhooks to reach.
 
-## 3. 数据源：Plaid Trial
+## 3. Data source: Plaid Trial
 
-- 一次银行登录算一个 Item。Trial 共 10 个，**按累计数计算，删除后不返还**。连接掉线一律用 Link 的 update mode 修复，不删除重连。
-- Link 参数：`products=["transactions"]`，`optional_products=["liabilities"]`，`transactions.days_requested=730`（Item 创建后不能再改）。不申请 `auth`，所以系统里不会有完整卡号和 routing number。
-- 每次同步顺带调用 `/liabilities/get`，取信用卡的本期账单金额、账单日、最低还款、还款日和上次还款，存进 `card_statements`（每张卡一行，每次覆盖）。银行不支持、Item 下没有信用卡、或者数据还没准备好时，这一步跳过，不影响交易同步。
-- 桌面浏览器里，OAuth 会在弹窗中完成，不需要 `redirect_uri`。
-- 正式环境的前提：Trial 申请已通过（自 2026-05-20 起，Trial 可直接使用所有 OAuth 银行，不需要安全问卷）；Link customization 里已选好 Data Transparency 用途。
-- OAuth 授权会过期：BOA 和 Amex 每 12 个月一次；Chase 由用户在授权时选 6 个月或 1 年（"always" 只对开通了 Auth 的应用开放）。过期后 Item 进入 `ITEM_LOGIN_REQUIRED`，走 update mode 修复。
-- Sandbox 和 Production 用两个独立的数据库文件（`data/fintrack-sandbox.db` 和 `data/fintrack-production.db`）。
-- Connector 只负责取数和标准化，输出与数据源无关的记录（`AccountRecord`、`TransactionRecord`）。以后可以按银行换成 Teller，或用 CSV 导入补 2 年以前的历史。
+- Each bank sign-in is one Item. Trial allows 10 in total, **counted cumulatively: removing one doesn't give it back**. A connection that drops off is always repaired through Link's update mode, never removed and connected again.
+- Link parameters: `products=["transactions"]`, `optional_products=["liabilities"]`, `transactions.days_requested=730` (which can't change once the Item exists). `auth` isn't requested, so full account and routing numbers never enter the system.
+- Each sync also calls `/liabilities/get` for each credit card's statement balance, statement date, minimum payment, due date and last payment, kept in `card_statements` (one row per card, overwritten each time). When the bank doesn't support it, the Item has no credit cards, or the data isn't ready yet, this step is skipped without affecting the transaction sync.
+- In a desktop browser, OAuth completes in a pop-up, so no `redirect_uri` is needed.
+- Production requires an approved Trial application (since 2026-05-20, Trial can use every OAuth bank without the security questionnaire) and a Data Transparency use case chosen in Link customization.
+- OAuth consent expires: every 12 months at BOA and Amex; at Chase after the 6 months or 1 year the user picks when consenting ("always" is only offered to apps with Auth). The Item then goes to `ITEM_LOGIN_REQUIRED` and is repaired in update mode.
+- Sandbox and Production use separate database files (`data/fintrack-sandbox.db` and `data/fintrack-production.db`).
+- A connector only fetches and normalizes, producing records that don't depend on the source (`AccountRecord`, `TransactionRecord`). Later, a bank could move to Teller, or a CSV import could fill in history older than 2 years.
 
-## 4. 存储
+## 4. Storage
 
-| 层 | 表 | 规则 |
+| Layer | Tables | Rules |
 |---|---|---|
-| Raw | `raw_events` | 每个 API 响应的原文，只追加不修改 |
-| Ledger | `items` `accounts` `transactions` `balance_snapshots` `card_statements` `sync_runs` | 清洗后的统一账本 |
-| Enrichment | `categories` `transaction_enrichment` `transaction_overrides` | 自动分类每次同步后全量重算；用户修改单独存放，同步绝不覆盖 |
-| Views | `v_ledger` | Overview、Activity、Insights、Ask 都只读这个视图，保证各处口径一致 |
+| Raw | `raw_events` | Every API response as received, append-only |
+| Ledger | `items` `accounts` `transactions` `balance_snapshots` `card_statements` `sync_runs` | The cleaned-up, unified ledger |
+| Enrichment | `categories` `transaction_enrichment` `transaction_overrides` | Automatic categories are recomputed in full after every sync; the user's edits are kept apart, and a sync never overwrites them |
+| Views | `v_ledger` | Overview, Transactions, Insights and Ask all read only this view, so every page counts the same way |
 
-约定：
+Conventions:
 
-- **金额**：整数美分，正负号按你的视角，流入为正、流出为负。Plaid 原始数据正好相反，入库时翻转。
-- **日期**：`transaction_date` 取 `authorized_date`，没有时用 `posted_date`。所有统计都按它算，所以 10/31 刷卡、11/2 入账的交易算在 10 月。
-- **时间格式**：时间戳用 UTC ISO-8601，日期用 `YYYY-MM-DD`；余额快照按本地日期，每个账户每天一行。
-- **不硬删除**：Plaid 撤回的交易（例如 pending 交易正式入账后）只记 `removed_at`。
-- **机密不进数据库**：Plaid access token 和所有 API key 都存在 macOS Keychain 里（service 为 `fintrack`）。
-- **分类决定收支类型**：每个分类属于 expense、income 或 transfer 之一，`flow_type` 跟随分类。所以用户只需要改分类，比如改成"账户间转账"就等于标记为转账。支出类别里的正数是退款，会冲减支出。
-- **待入账交易正式入账后**：Plaid 会用一笔新的正式交易替换它，用户在原来那笔上的修改会自动沿用到新交易上。
+- **Amounts**: integer cents, signed from your point of view: money in is positive, money out negative. Plaid's raw data is the other way round, so the sign is flipped on the way in.
+- **Dates**: `transaction_date` is the `authorized_date`, or the `posted_date` when there's none. Every figure goes by it, so a card swiped on 10/31 that posts on 11/2 counts in October.
+- **Time formats**: timestamps are UTC ISO-8601 and dates `YYYY-MM-DD`; balance snapshots go by local date, one row per account per day.
+- **No hard deletes**: a transaction Plaid withdraws (for example a pending one that has posted) only gets `removed_at`.
+- **No secrets in the database**: the Plaid access tokens and all API keys are in the macOS Keychain (service `fintrack`).
+- **The category decides the flow type**: every category is expense, income or transfer, and `flow_type` follows it. So the user only ever changes the category; changing it to Between accounts, say, marks the transaction as a transfer. A positive amount in a spending category is a refund and offsets spending.
+- **When a pending transaction posts**: Plaid replaces it with a new, posted transaction, and the user's edits on the pending one carry over to it.
 
-## 5. 同步
+## 5. Sync
 
-- **何时触发**：服务进程里有一个调度线程（`scheduler.py`），每 5 分钟检查一次：如果从最近一个 06:00 到现在还没有成功同步过，就跑一次。所以 Mac 睡过了 06:00，醒来后几分钟内会补上。失败后重试，但间隔至少 30 分钟。另外，「账户」页有「立即同步」按钮；新连接一家银行后会自动轮询，直到 2 年历史拉齐。
-- **常驻运行**：`fintrack service install` 会把服务注册为 macOS LaunchAgent，登录时自动启动，崩溃后自动重启。它直接运行项目虚拟环境里的 `fintrack serve`，不依赖 uv 或 shell。
-- **每个 Item 独立执行**：先调 `/accounts/get`，再用 `/transactions/sync` 一直翻页到底，然后在**一个数据库事务**里写 Raw 层、更新账户和余额快照、写入交易、标记已移除的交易、推进 cursor。中途崩溃时什么都不会写入，下次从旧 cursor 重来。
-- 翻页途中遇到 `TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION`：从这一轮起始的 cursor 整体重来。
-- 返回 `NOT_READY` 时 `next_cursor` 为空：保留原来的 cursor，下次重试。
-- 遇到 `ITEM_LOGIN_REQUIRED`：把该 Item 标成 `login_required`，页面上提供「重新登录」（走 update mode）。
-- 同一进程内同一时间只跑一个同步；重复执行结果相同（幂等）。
+- **When it runs**: a scheduler thread in the service process (`scheduler.py`) checks every 5 minutes and syncs if there hasn't been a successful sync since the most recent 6:00 AM. So if the Mac slept through 6:00, it catches up within minutes of waking. After a failure it retries, at least 30 minutes apart. The Accounts page also has a Sync now button, and after a new bank is connected the page polls until its 2 years of history are in.
+- **Always on**: `fintrack service install` registers the service as a macOS LaunchAgent, which starts at login and restarts after a crash. It runs `fintrack serve` straight from the project's virtual environment, without uv or a shell.
+- **Each Item on its own**: first `/accounts/get`, then `/transactions/sync` page after page to the end, then, in **one database transaction**, write the Raw layer, update the accounts and balance snapshots, write the transactions, mark the removed ones and advance the cursor. A crash part way through writes nothing, and the next run starts again from the old cursor.
+- `TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION` while paging: the whole round starts again from its first cursor.
+- `NOT_READY` comes with an empty `next_cursor`: the old cursor stays, and the next run retries.
+- `ITEM_LOGIN_REQUIRED`: the Item is marked `login_required`, and the page offers Sign in again (update mode).
+- Only one sync runs at a time in the process, and running one again gives the same result (idempotent).
 
-## 6. 分类与分析
+## 6. Categories and analysis
 
-### 自动分类规则（Phase 1，`enrich.py`）
+### Automatic categories (Phase 1, `enrich.py`)
 
-分类体系有两级、约 60 个类别，定义在迁移文件 `0002_enrichment.sql` 里，只有最底层的类别可以给交易使用。规则从上往下匹配，命中第一条即停止：
+The taxonomy has two levels and about 60 categories, defined in the migration `0002_enrichment.sql` (named in English since `0005`); only the lowest level can be given to a transaction. The rules are tried from the top, and the first match wins:
 
-1. **非现金账户**（贷款、投资）上的交易：归为转账，不进入收支
-2. **个人转账类应用**（Zelle、Venmo、Cash App、Apple Cash，以及没有识别出商户的 PayPal）：转入算"AA 与报销收回"，冲减支出；转出算"个人转账"，计入支出。通过 PayPal 付款给商户的交易仍归到该商户的分类
-3. **信用卡还款**，从两端识别：卡上收到的还款（如 "AUTOMATIC PAYMENT - THANK YOU"），以及存款账户付出的还款（如 "CHASE CREDIT CRD AUTOPAY"、"AMERICAN EXPRESS ACH PMT"、"payment to CRD 7781"）
-4. **存款账户的入账**：描述含工资、退税或利息关键词时，分别归为工资、退税、利息收入
-5. **Plaid 分类**：按前缀映射到自有分类，兼容 PFC v1 和 v2。之后再检查资金方向：流出不可能是收入；信用卡上收到的钱是退款或返现，也不是收入
-6. **兜底**：存款账户的流入归为其他收入，信用卡的流入归为返现，流出归为未分类
+1. Transactions on **non-cash accounts** (loans, investments): transfers, outside income and spending
+2. **Person-to-person apps** (Zelle, Venmo, Cash App, Apple Cash, and PayPal when no merchant is recognized): money in is Money paid back, which offsets spending; money out is Payments to people, which counts as spending. A payment to a merchant through PayPal stays in that merchant's category
+3. **Credit card payments**, recognized at both ends: the payment arriving on the card (such as "AUTOMATIC PAYMENT - THANK YOU"), and the payment leaving a deposit account (such as "CHASE CREDIT CRD AUTOPAY", "AMERICAN EXPRESS ACH PMT", "payment to CRD 7781")
+4. **Money into a deposit account**: a description with payroll, tax refund or interest keywords makes it Salary, Tax refunds or Interest income
+5. **Plaid's category**, mapped by prefix to our own, for both PFC v1 and v2. The direction of the money is checked afterwards: money out can't be income, and money into a credit card is a refund or cashback, not income either
+6. **Fallback**: money into a deposit account is Other income, money into a credit card is Cashback & credits, and money out is Uncategorized
 
-**转账配对**：在两个不同的已关联账户之间，找出金额相等、方向相反、入账日期相差不超过 5 天的一对交易，配对后都标为转账，并互相记录对方。配对条件是至少一侧已被识别为转账，另一侧也有转账迹象，以免把同金额的退款误配进来。有多个候选时，优先选同样被识别为转账的那一笔。贷款还款的处理方式是：如果当初那笔购买是由我们没有关联的放贷方出资的（房贷、车贷、学贷、先买后付），还款就算支出；其余情况只是借来的钱在账户间流动，算转账。
+**Transfer matching**: between two different connected accounts, two transactions of equal amounts in opposite directions, posted no more than 5 days apart, are paired; both become transfers and record each other. At least one side must already be recognized as a transfer, and the other must show signs of one too, so that a refund of the same amount isn't paired by mistake. Among several candidates, one also recognized as a transfer is preferred. Loan payments: if the purchase was financed by a lender we haven't connected (a mortgage, car loan, student loan, buy now pay later), the payments count as spending; otherwise it's only borrowed money moving between accounts, a transfer.
 
-Plaid 的分类只能作为参考。Sandbox 实测中，`Sweetgreen inc payroll ppd id` 是工资入账，却被归为 `FOOD_AND_DRINK_RESTAURANT`；信用卡还款 "Payment Thank You" 被归为 `INCOME`。因此 `flow_type` 和分类都要结合 `original_description` 来判断。
+Plaid's categories are only a hint. In Sandbox, `Sweetgreen inc payroll ppd id` is a payroll deposit but came labelled `FOOD_AND_DRINK_RESTAURANT`, and the card payment "Payment Thank You" came labelled `INCOME`. So `flow_type` and the category are both decided with the `original_description` in view.
 
-### 分类规则（Phase 2，`rules.py`）
+### Category rules (Phase 2, `rules.py`)
 
-- **优先级**：单笔交易上的手动修改 > 你的规则 > 上面的自动规则。Phase 3 的 Claude 分类排在自动规则之后，只处理自动规则也分不出的交易。
-- **一条规则 = 条件 + 分类**。条件可以是商户名称（整体匹配），也可以是描述里的关键词（银行原始描述和 Plaid 名称都算）。匹配时忽略大小写和多余空格，也可以限定只对转入或只对转出生效。一笔交易同时符合几条规则时，越具体的越优先：商户规则先于关键词，长关键词先于短关键词，限定方向的先于不限的，新建的先于旧的。
-- 条件相同的规则只有一条（比较时忽略大小写），再次保存同样的条件，就是修改它的分类。
-- 规则或手动修改一有变化，所有交易都重新归类，所以规则对历史交易同样生效。
-- **和转账配对的关系**：配对不会改掉你定的分类。你定为转账的交易，仍然可以和另一个账户上的那一半配对，那一半会随之标为转账；你把配对中的一笔改成支出，这一对就拆开。
-- **在交易详情里生成规则**：改分类时勾选「以后同样的交易也归入这个分类」。有商户名时默认按商户匹配，没有时用描述的前几个词。支出类规则默认不限方向，让退款和购买归在同一类；收入和转账类规则默认只对与这笔交易相同的方向生效。生成规则后，这笔交易上原来手动设的分类让位给规则。
+- **Precedence**: an edit on a single transaction > your rules > the automatic rules above. Phase 3's Claude categories come after the automatic rules and only handle transactions those can't place either.
+- **A rule is a condition and a category.** The condition is a merchant name (matched whole) or a keyword in the description (both the bank's original description and Plaid's name count). Matching ignores case and extra spaces, and a rule can be limited to money in or to money out. When several rules match a transaction, the most specific wins: merchant rules before keyword rules, longer keywords before shorter ones, rules with a direction before rules without, newer rules before older ones.
+- There's one rule per condition (compared ignoring case): saving the same condition again changes its category.
+- Whenever a rule or an edit changes, every transaction is categorized again, so rules apply to past transactions too.
+- **With transfer matching**: matching never overrides a category you set. A transaction you made a transfer can still be paired with its other half on another account, which then becomes a transfer too; changing one side of a pair to spending splits the pair.
+- **Making a rule from a transaction**: when changing its category, check "Use this category for similar transactions". The rule matches the merchant name when there is one, and otherwise the first few words of the description. Spending rules default to both directions, so refunds land in the same category as the purchases; income and transfer rules default to this transaction's direction. Once the rule exists, a category set by hand on this transaction gives way to it.
 
-### 分析（Phase 2，`insights.py`）
+### Analysis (Phase 2, `insights.py`)
 
-- **粒度**：日、周（周一到周日）、月、年。趋势图依次显示最近 30 天、26 周、24 个月，或者有数据以来的每一年。比第一笔交易还早就已结束的周期不显示。
-- **口径**：收入、支出、结余（收入减支出）的算法与总览相同：转账不计入，待入账交易计入。
-- **对比**有三种：前一期；去年同期（日期往前推一年，2 月 29 日按 28 日算）；前 3 期平均。还没结束的周期只和前几期的相同天数比，比如 10 月 1–28 日对 9 月 1–28 日，超出月末的按月末截断；已经结束的周期按整期比。
-- **构成**按分类组汇总，可以展开到子分类，表里有占比一列。点分类名会跳到交易流，并带上这个分类和这一期的日期范围。
-- **支出环形图**用来一眼看比例：当期支出最多的 5 个分类组单独成块，其余合成一块灰色。过去一年支出最多的 5 个分类组各有固定颜色，切换周期时颜色不变；当期新进前 5 的分类借用空出来的颜色。各块按颜色顺序排列，这个顺序里相邻的颜色对色弱读者也区分得开。比例按退款和报销抵扣前的金额计算；某个分类组当期收回的钱比花出去的多时，它不在图里，图下会注明。
-- **变化来源**同时列出增加最多和减少最多的分类组，因为净变化很小时，可能掩盖了几个分类的大幅波动。
+- **Granularity**: day, week (Monday to Sunday), month or year. The trend chart shows the last 30 days, 26 weeks or 24 months, or every year since the data begins. Periods that ended before the first transaction aren't shown.
+- **Definitions**: income, spending and net (income minus spending) are counted as on the Overview: transfers don't count, pending transactions do.
+- **Comparisons**, three kinds: the previous period; the same period last year (dates moved back a year, with February 29 taken as the 28th); the average of the previous 3 periods. A period still running is compared with the same days of the earlier ones, such as October 1–28 against September 1–28, cut off at the end of a shorter month; a finished period is compared whole.
+- **Breakdowns** are by category group, expand to subcategories, and have a share column. Clicking a category opens Transactions filtered to that category and the period's dates.
+- **The spending donut** shows proportions at a glance: this period's 5 biggest category groups get slices of their own, and the rest share one gray slice. The past year's 5 biggest groups each have a fixed color, which stays the same from period to period; a group new to this period's top 5 borrows a color left free. Slices go round in color order, an order whose neighbouring colors stay distinct for color-blind readers. Shares are of spending before refunds and reimbursements; a group that got back more than it spent in the period has no slice, and a note below the chart says so.
+- **What drove the change** lists both the groups that went up most and those that went down most, since a small net change can hide big swings in a few categories.
 
-## 7. Claude 分类与 Ask Fintrack（Phase 3）
+## 7. Claude categories and Ask Fintrack (Phase 3)
 
-两者都调用 Claude，共用第 8 节的隐私出口模块，所以放在一起做。
+Both call Claude and share the privacy gateway of section 8, so they're built together.
 
-- **Claude 分类**：自动规则也分不出（未分类）的交易交给 Claude。用 structured outputs 保证只返回有效类别；只发送脱敏后的描述模板，结果按模板缓存在本地。置信度低的进入待确认列表。
-- 给 Claude 一个只读 SQL 工具（只能查脱敏视图 `v_ai_ledger`，只读连接，限制返回行数和执行时间），再加几个汇总工具；回答流式输出，对话记录存在本地。
-- 表结构、口径、分类体系和账户别名放在 system prompt 里，用 prompt caching 缓存。
-- 离开本机的只有脱敏视图的查询结果；切到「只看结构」模式后，结果完全不出本机。详见第 8 节。
-- 模型默认 `claude-opus-5-5`；分类任务可以换成更便宜的 `claude-haiku-5-5`。
+- **Claude categories**: transactions the automatic rules leave uncategorized go to Claude. Structured outputs guarantee a valid category; only redacted description templates are sent, and results are cached locally by template. Low-confidence results go to a list for you to confirm.
+- Claude gets a read-only SQL tool (over the redacted view `v_ai_ledger` only, on a read-only connection, with limits on the rows returned and the run time) plus a few summary tools; answers stream, and conversations are kept locally.
+- The schema, definitions, taxonomy and account aliases go in the system prompt, cached with prompt caching.
+- Only query results from the redacted view leave this Mac; in schema-only mode, results don't leave it at all. See section 8.
+- The default model is `claude-opus-5-5`; categorization can use the cheaper `claude-haiku-5-5`.
 
-## 8. 隐私
+## 8. Privacy
 
-原则：真实数据默认只留在本机。Plaid 负责取数，能看到全部数据，这是唯一的例外。Anthropic 只可能通过两条路径接触到数据，两条都按下面的规则处理。
+The principle: real data stays on this Mac by default. Plaid fetches the data and can see all of it, the one exception. Data could only reach Anthropic by two paths, and both follow the rules below.
 
-### 数据分级
+### Data classes
 
-| 级别 | 内容 | 能否发给 Anthropic |
+| Class | What | Sent to Anthropic? |
 |---|---|---|
-| 身份信息 | 你的姓名、转账对方的姓名、账号和卡号尾号、地址、电话、邮箱、描述里的各种编号（ID、Conf#、PPD ID 等）、你写的备注 | 永远不发 |
-| 位置 | 商户地址、城市、邮编、经纬度 | 永远不发 |
-| 交易明细 | 单笔交易的日期、金额、商户名，账户余额 | 默认不发；开启 AI 功能后，按功能需要最少量地发 |
-| 汇总 | 分类合计、月度趋势、笔数 | 开启 AI 功能后可以发 |
+| Identity | Your name, the names of people on the other end of transfers, account and card numbers down to the last digits, addresses, phone numbers, email, the reference numbers in descriptions (ID, Conf#, PPD ID and so on), your notes | Never |
+| Location | Merchant addresses, cities, ZIP codes, coordinates | Never |
+| Transaction details | A transaction's date, amount and merchant name; account balances | Not by default; with the AI features on, only the least each feature needs |
+| Aggregates | Category totals, monthly trends, counts | Once the AI features are on |
 
-### 路径一：开发时的 Claude Code
+### Path 1: Claude Code during development
 
-Claude Code 读到的内容都会发送给 Anthropic，所以开发时只接触代码和 Sandbox 数据：
+Everything Claude Code reads is sent to Anthropic, so development only touches code and Sandbox data:
 
-- 规则写在 `CLAUDE.md`：不读 `data/` 和 Keychain，不访问正式环境的服务。验证界面只用合成的演示数据：由 `scripts/seed_demo.py` 生成，存在 `.dev-data/`，演示服务用 8788 端口。
-- 兜底拦截：`.claude/settings.json` 的 deny 规则禁止读取 `data/`；PreToolUse 钩子 `.claude/hooks/private_data_guard.py` 拦截会碰到数据库、Keychain 或 8787 端口的命令和浏览器操作。
-- `fintrack status` 只输出连接状态、账户类型、各账户的交易笔数和日期范围，不含账户名称、尾号和余额。
-- 分类规则的校准不经过 Claude Code：分类不准的地方由你在网页上修正，修正可以生成规则（Phase 2），之后自动套用。
-- 在 claude.ai 的隐私设置里关闭 Model Improvement，开发对话就不会被用于训练。
+- The rules are in `CLAUDE.md`: don't read `data/` or the Keychain, and don't access the production server. The UI is checked on made-up demo data only, generated by `scripts/seed_demo.py` into `.dev-data/`, with the demo server on port 8788.
+- Backstops: deny rules in `.claude/settings.json` block reading `data/`, and the PreToolUse hook `.claude/hooks/private_data_guard.py` blocks commands and browser actions that would touch the database, the Keychain or port 8787.
+- `fintrack status` only prints connection status, account types, and each account's transaction count and date range, without account names, last digits or balances.
+- Categories aren't tuned through Claude Code: you fix wrong categories in the web app, and a fix can become a rule (Phase 2) that applies from then on.
+- Turning off Model Improvement in claude.ai's privacy settings keeps development conversations out of training.
 
-### 路径二：应用里的 AI 功能（Phase 2、3）
+### Path 2: the AI features in the app (Phases 2 and 3)
 
-- 默认关闭。没有配置 `ANTHROPIC_API_KEY` 时，应用不会发出任何请求。
-- 所有请求都经过同一个出口模块（`privacy.py`）：先删减到功能所需，再脱敏，然后把实际发送的完整内容记入本地的 `ai_requests` 表，在页面上随时可查。
-- 分类（Phase 2）：只发去重后的描述模板、商户名、Plaid 分类和资金方向，不发金额、日期和账户。结果按模板缓存在本地，同一种描述只发一次。
-- Ask（Phase 3）：Claude 只能查专用视图 `v_ai_ledger`，里面只有日期、金额、分类、收支类型、商户名和账户别名（如"Chase 信用卡 2"），没有原始描述、尾号、位置和备注。个人转账的对方换成"联系人 A"这样的化名，对应关系只存在本地。另有「只看结构」模式：Claude 只负责写 SQL，本机执行后直接把结果展示给你，结果不回传给 Claude。
-- 应用通过 API 调用 Claude，适用商业条款：数据不会用于训练；输入和输出在 30 天内从 Anthropic 后端删除，违反使用政策或法律要求保留的情况除外。
+- Off by default. Without an `ANTHROPIC_API_KEY`, the app sends no requests at all.
+- Every request goes through one gateway module (`privacy.py`): it's cut down to what the feature needs, then redacted, and the exact content sent is recorded in the local `ai_requests` table, which the web app can show at any time.
+- Categorization (Phase 2): only deduplicated description templates, merchant names, Plaid categories and the direction of the money; no amounts, dates or accounts. Results are cached locally by template, so each kind of description is sent once.
+- Ask (Phase 3): Claude can only query the dedicated view `v_ai_ledger`, which holds just the date, amount, category, flow type, merchant name and an account alias (such as "Chase credit card 2"), with no original descriptions, account digits, locations or notes. The people on the other end of person-to-person transfers become pseudonyms such as "Contact A", and the mapping stays local. There's also a schema-only mode: Claude only writes the SQL, which runs on this Mac and shows you the results directly, without sending them back to Claude.
+- The app calls Claude through the API, under the commercial terms: data isn't used for training, and inputs and outputs are deleted from Anthropic's backend within 30 days, except where a usage policy violation or the law requires keeping them.
 
-### 本机存储
+### On this Mac
 
-数据库没有单独加密，依靠 macOS 的 FileVault 全盘加密。`data/` 和 `.env` 都在 `.gitignore` 里，不会进入 git。
+The database isn't encrypted separately; it relies on macOS FileVault full-disk encryption. `data/` and `.env` are in `.gitignore`, so they never get into git.
 
-## 9. 分期
+## 9. Phases
 
-- [x] Phase 0 代码：Plaid 连接器、同步引擎、Raw 和 Ledger 存储、连接调试页、CLI
-- [x] Phase 0 Sandbox 验收（2026-10-28）：7 个账户、316 笔交易入库，正负号已对照原始数据核实，Link 可正常打开
-- [x] Phase 0 真实银行验收（2026-10-28）：BOA、Chase、Amex 都已通过 OAuth 连上，历史同步完成。部分账户的历史不足 2 年（银行只给这么多，或卡开得较晚），需要时用 CSV 导入补齐
-- [x] Phase 1 MVP 代码（2026-10-28）：定时同步与 launchd 服务、Enrichment（收支判定、转账配对、规则分类、用户修改）、React 前端（Overview、Activity、Accounts）
-- [x] 隐私防护（2026-10-28）：Claude Code 的访问规则和兜底拦截、不含个人信息的 `fintrack status`、开发只连 Sandbox
-- [x] Phase 2 代码（2026-10-28）：分类规则和「以后同样的交易也归入这个分类」、Insights 分析页、交易流按日期范围筛选、开发用的合成演示数据。真实数据上的分类由你在网页上修正，这也是 Phase 1 规则的校准方式
-- [ ] Phase 3：Claude 分类与 Ask Fintrack
-- [ ] 账户管理：给已连接的银行补选或移除卡片（update mode 选卡）、把账户排除在统计之外、授权到期提醒、用 CSV 导入补齐更早的历史
-- [x] 信用卡还款提醒（2026-11-01）：同步时取信用卡账单（Liabilities），账户页显示本期账单和还款日，总览列出待还的卡
-- [ ] 之后：识别订阅和周期扣费、异常交易提醒、预算、投资账户
+- [x] Phase 0 code: Plaid connector, sync engine, Raw and Ledger storage, a connection debug page, the CLI
+- [x] Phase 0 Sandbox acceptance (2026-10-28): 7 accounts and 316 transactions stored, signs checked against the raw data, Link opens
+- [x] Phase 0 real-bank acceptance (2026-10-28): BOA, Chase and Amex connected through OAuth, history synced. Some accounts have less than 2 years of history (all the bank provides, or a card opened later); a CSV import can fill it in when needed
+- [x] Phase 1 MVP code (2026-10-28): scheduled sync and the launchd service, enrichment (flow types, transfer matching, rule-based categories, user edits), the React frontend (Overview, Transactions, Accounts)
+- [x] Privacy safeguards (2026-10-28): Claude Code's access rules and backstops, a `fintrack status` without personal data, development on Sandbox only
+- [x] Phase 2 code (2026-10-28): category rules and "Use this category for similar transactions", the Insights page, a date filter on Transactions, made-up demo data for development. Categories on real data are fixed by you in the web app, which is also how the Phase 1 rules are tuned
+- [ ] Phase 3: Claude categories and Ask Fintrack
+- [ ] Account management: adding or removing cards on a connected bank (account selection in update mode), leaving an account out of the figures, reminders before consent expires, CSV import for older history
+- [x] Credit card payments (2026-11-01): card statements (Liabilities) fetched on every sync, statements and due dates on the Accounts page, the cards still to pay on the Overview
+- [x] English as the source language (2026-11-01): the web app comes with a Chinese translation; the command line, logs and API are in English; the docs come in both languages
+- [ ] Later: subscriptions and recurring charges, unusual transaction alerts, budgets, investment accounts

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { LedgerRow } from "../api";
 import { dayHeading, money } from "../format";
+import { categoryName, useI18n } from "../i18n";
 
 export function accountLabel(row: Pick<LedgerRow, "institution_name" | "account_name" | "account_mask">): string {
   const name = row.institution_name ?? row.account_name;
@@ -40,17 +41,22 @@ function Avatar({ row }: { row: LedgerRow }) {
 }
 
 function TransactionRow({ row, onSelect }: { row: LedgerRow; onSelect(row: LedgerRow): void }) {
+  const { t } = useI18n();
   const transfer = row.flow_type === "transfer";
   return (
     <button type="button" className={`txn-row${transfer ? " is-transfer" : ""}`} onClick={() => onSelect(row)}>
       <Avatar row={row} />
       <span className="txn-main">
         <span className="txn-name">
-          <span className="txn-title">{row.display_name ?? "（无描述）"}</span>
-          {row.pending ? <span className="badge pending">待入账</span> : null}
+          <span className="txn-title">{row.display_name ?? t.transactions.noDescription}</span>
+          {row.pending ? <span className="badge pending">{t.transactions.pending}</span> : null}
         </span>
         <span className="txn-meta">
-          <span className="chip">{row.category_name ?? "未分类"}</span>
+          <span className="chip">
+            {row.category_id && row.category_name
+              ? categoryName({ id: row.category_id, name: row.category_name })
+              : t.transactions.uncategorized}
+          </span>
           <span>{accountLabel(row)}</span>
           {row.note && <span className="txn-note">{row.note}</span>}
         </span>

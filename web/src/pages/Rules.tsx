@@ -2,12 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { api, type RuleChanges, type RuleCondition } from "../api";
 import { CategorySelect } from "../components/CategorySelect";
-import { DIRECTION_LABELS, MATCH_LABELS, RuleFields } from "../components/RuleFields";
+import { RuleFields } from "../components/RuleFields";
+import { useI18n } from "../i18n";
 import { invalidateLedger } from "../queries";
 
 const EMPTY: RuleCondition = { match_field: "merchant", pattern: "", direction: null };
 
 export function RulesPage() {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const rules = useQuery({ queryKey: ["rules"], queryFn: api.rules });
   const categories = useQuery({ queryKey: ["categories"], queryFn: api.categories, staleTime: Infinity });
@@ -38,30 +40,28 @@ export function RulesPage() {
     <>
       <header className="page-header">
         <div>
-          <h1>分类规则</h1>
-          <p className="page-subtitle">
-            规则比自动分类优先，单笔交易上手动改的分类又比规则优先。规则一改，所有历史交易会立即重新归类。
-          </p>
+          <h1>{t.rules.title}</h1>
+          <p className="page-subtitle">{t.rules.subtitle}</p>
         </div>
       </header>
 
       <section className="panel">
         <div className="panel-header">
-          <h2>新建规则</h2>
+          <h2>{t.rules.newRule}</h2>
         </div>
         <form className="rule-form" onSubmit={submit}>
           <RuleFields value={draft} onChange={setDraft} />
           <div className="rule-form-target">
-            <label htmlFor="new-rule-category">归入</label>
+            <label htmlFor="new-rule-category">{t.rules.categorizeAs}</label>
             <CategorySelect
               id="new-rule-category"
               categories={categories.data ?? []}
               value={categoryId}
               onChange={setCategoryId}
-              placeholder="选择分类"
+              placeholder={t.rules.chooseCategory}
             />
             <button type="submit" className="primary" disabled={!draft.pattern.trim() || !categoryId || create.isPending}>
-              {create.isPending ? "保存中…" : "添加规则"}
+              {create.isPending ? t.common.saving : t.rules.add}
             </button>
           </div>
           {create.error && <p className="error">{create.error.message}</p>}
@@ -70,8 +70,8 @@ export function RulesPage() {
 
       <section className="panel">
         <div className="panel-header">
-          <h2>我的规则</h2>
-          {rules.data && rules.data.length > 0 && <span className="muted">{rules.data.length} 条</span>}
+          <h2>{t.rules.yours}</h2>
+          {rules.data && rules.data.length > 0 && <span className="muted">{t.rules.count(rules.data.length)}</span>}
         </div>
         {(edit.error ?? remove.error) && <p className="error small">{(edit.error ?? remove.error)?.message}</p>}
         {rules.data && rules.data.length > 0 ? (
@@ -79,11 +79,11 @@ export function RulesPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>条件</th>
-                  <th>归入分类</th>
-                  <th className="num">目前影响</th>
+                  <th>{t.rules.condition}</th>
+                  <th>{t.rules.category}</th>
+                  <th className="num">{t.rules.appliesTo}</th>
                   <th>
-                    <span className="visually-hidden">操作</span>
+                    <span className="visually-hidden">{t.rules.actions}</span>
                   </th>
                 </tr>
               </thead>
@@ -91,30 +91,30 @@ export function RulesPage() {
                 {rules.data.map((rule) => (
                   <tr key={rule.id}>
                     <td className="wrap">
-                      {MATCH_LABELS[rule.match_field]} <strong>{rule.pattern}</strong>
-                      {rule.direction && <span className="tag">{DIRECTION_LABELS[rule.direction]}</span>}
+                      {t.rules.match[rule.match_field]} <strong>{rule.pattern}</strong>
+                      {rule.direction && <span className="tag">{t.rules.direction[rule.direction]}</span>}
                     </td>
                     <td>
                       <CategorySelect
-                        label={`「${rule.pattern}」归入的分类`}
+                        label={t.rules.categoryFor(rule.pattern)}
                         categories={categories.data ?? []}
                         value={rule.category_id}
                         onChange={(id) => edit.mutate({ id: rule.id, changes: { category_id: id } })}
                       />
                     </td>
-                    <td className="num">{rule.transaction_count} 笔</td>
+                    <td className="num">{t.rules.transactions(rule.transaction_count)}</td>
                     <td className="row-actions">
                       <button
                         type="button"
                         className="text-button danger"
                         disabled={remove.isPending}
                         onClick={() => {
-                          if (window.confirm(`删除规则「${MATCH_LABELS[rule.match_field]} ${rule.pattern}」？对应的交易会回到自动分类。`)) {
+                          if (window.confirm(t.rules.confirmDelete(`${t.rules.match[rule.match_field]} ${rule.pattern}`))) {
                             remove.mutate(rule.id);
                           }
                         }}
                       >
-                        删除
+                        {t.rules.delete}
                       </button>
                     </td>
                   </tr>
@@ -123,11 +123,7 @@ export function RulesPage() {
             </table>
           </div>
         ) : (
-          <p className="empty">
-            {rules.isPending
-              ? "加载中…"
-              : "还没有规则。在交易详情里改分类时勾选「以后同样的交易也归入这个分类」，或者在上面新建。"}
-          </p>
+          <p className="empty">{rules.isPending ? t.common.loading : t.rules.empty}</p>
         )}
       </section>
     </>

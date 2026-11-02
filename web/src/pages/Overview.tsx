@@ -4,10 +4,12 @@ import { PaymentCalendar } from "../components/PaymentCalendar";
 import { StatTile } from "../components/StatTile";
 import { TransactionList } from "../components/TransactionList";
 import { money, periodLabel } from "../format";
+import { useI18n } from "../i18n";
 import { Link } from "../router";
 
 /** Credit card payments coming up, as a calendar of the next few weeks, with what is left to pay. */
 function UpcomingPayments() {
+  const { t } = useI18n();
   const payments = useQuery({ queryKey: ["card-payments"], queryFn: api.cardPayments });
   const all = payments.data ?? [];
   if (all.length === 0) return null;
@@ -17,14 +19,10 @@ function UpcomingPayments() {
   return (
     <section className="panel">
       <div className="panel-header">
-        <h2>近期还款</h2>
-        <span className="muted small-text">
-          {[open.length > 0 ? `待还合计 ${money(total)}` : "本期账单都已还清", paid > 0 && open.length > 0 && `另有 ${paid} 张卡已还清`]
-            .filter(Boolean)
-            .join("，")}
-        </span>
+        <h2>{t.overview.payments}</h2>
+        <span className="muted small-text">{t.overview.paymentsSummary(open.length > 0 ? money(total) : null, paid)}</span>
         <Link to="accounts" className="panel-link">
-          查看账户 →
+          {t.overview.viewAccounts}
         </Link>
       </div>
       <PaymentCalendar payments={all} />
@@ -33,6 +31,7 @@ function UpcomingPayments() {
 }
 
 export function OverviewPage({ status, onSelect }: { status: Status | undefined; onSelect(row: LedgerRow): void }) {
+  const { t } = useI18n();
   const overview = useQuery({ queryKey: ["overview"], queryFn: api.overview });
   const recent = useQuery({ queryKey: ["activity", "recent"], queryFn: () => api.activity({}, null, 12) });
 
@@ -40,13 +39,13 @@ export function OverviewPage({ status, onSelect }: { status: Status | undefined;
     return (
       <>
         <header className="page-header">
-          <h1>总览</h1>
+          <h1>{t.overview.title}</h1>
         </header>
         <section className="panel empty-state">
-          <h2>还没有连接银行</h2>
-          <p>连接 Bank of America、Chase 和 American Express 之后，这里会显示本月收入、支出和净现金头寸。</p>
+          <h2>{t.overview.emptyTitle}</h2>
+          <p>{t.overview.emptyText}</p>
           <Link to="accounts" className="button primary">
-            去连接银行
+            {t.overview.emptyAction}
           </Link>
         </section>
       </>
@@ -58,10 +57,13 @@ export function OverviewPage({ status, onSelect }: { status: Status | undefined;
     <>
       <header className="page-header">
         <div>
-          <h1>总览</h1>
+          <h1>{t.overview.title}</h1>
           <p className="page-subtitle">
             {data
-              ? `${periodLabel(data.period.start, data.period.end)}，对比上月同期 ${periodLabel(data.previous_period.start, data.previous_period.end)}`
+              ? t.overview.period(
+                  periodLabel(data.period.start, data.period.end),
+                  periodLabel(data.previous_period.start, data.previous_period.end),
+                )
               : " "}
           </p>
         </div>
@@ -72,26 +74,29 @@ export function OverviewPage({ status, onSelect }: { status: Status | undefined;
         {data ? (
           <>
             <StatTile
-              label="本月收入"
+              label={t.overview.income}
               value={data.income.current}
               previous={data.income.previous}
-              compareLabel="上月同期"
+              compareLabel={t.comparison.previousSoFar.month}
               upIsGood
             />
             <StatTile
-              label="本月支出"
+              label={t.overview.spending}
               value={data.spending.current}
               previous={data.spending.previous}
-              compareLabel="上月同期"
+              compareLabel={t.comparison.previousSoFar.month}
               upIsGood={false}
             />
             <StatTile
-              label="净现金头寸"
+              label={t.overview.netCash}
               value={data.net_cash.current}
               previous={data.net_cash.previous}
-              compareLabel="上月同日"
+              compareLabel={t.overview.sameDayLastMonth}
               upIsGood
-              footnote={`存款 ${money(data.net_cash.cash, { whole: true })} − 信用卡欠款 ${money(data.net_cash.debt, { whole: true })}`}
+              footnote={t.overview.netCashParts(
+                money(data.net_cash.cash, { whole: true }),
+                money(data.net_cash.debt, { whole: true }),
+              )}
             />
           </>
         ) : (
@@ -103,15 +108,15 @@ export function OverviewPage({ status, onSelect }: { status: Status | undefined;
 
       <section className="panel">
         <div className="panel-header">
-          <h2>最近交易</h2>
+          <h2>{t.overview.recent}</h2>
           <Link to="activity" className="panel-link">
-            查看全部 →
+            {t.overview.viewAll}
           </Link>
         </div>
         {recent.data && recent.data.items.length > 0 ? (
           <TransactionList rows={recent.data.items} onSelect={onSelect} />
         ) : (
-          <p className="empty">{recent.isPending ? "加载中…" : "还没有交易"}</p>
+          <p className="empty">{recent.isPending ? t.common.loading : t.common.noTransactions}</p>
         )}
       </section>
     </>

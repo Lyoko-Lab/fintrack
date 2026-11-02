@@ -1,6 +1,7 @@
 // Plaid Link, loaded from Plaid's CDN on first use. Bank credentials are typed into
 // Plaid's own window; Fintrack only ever receives a one-time public token.
 import { api } from "./api";
+import { messages } from "./i18n";
 
 interface PlaidHandler {
   open(): void;
@@ -29,7 +30,7 @@ function loadScript(): Promise<void> {
     script.onload = () => resolve();
     script.onerror = () => {
       scriptLoad = null;
-      reject(new Error("无法加载 Plaid Link，请检查网络"));
+      reject(new Error(messages().errors.plaidScript));
     };
     document.head.append(script);
   });

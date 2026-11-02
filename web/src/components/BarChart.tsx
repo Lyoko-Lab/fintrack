@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useI18n } from "../i18n";
 
 export interface Bar {
   key: string;
@@ -50,6 +51,7 @@ function barPath(x: number, width: number, base: number, end: number): string {
  * arrow keys, to select it. Every bar shows its value in a tooltip on hover and on focus.
  */
 export function BarChart({ bars, selected, onSelect, formatValue, formatTick, label }: BarChartProps) {
+  const { t } = useI18n();
   const box = useRef<HTMLDivElement>(null);
   const hits = useRef<(SVGRectElement | null)[]>([]);
   const [width, setWidth] = useState(0);
@@ -137,7 +139,7 @@ export function BarChart({ bars, selected, onSelect, formatValue, formatTick, la
                 height={bottom - TOP}
                 role="radio"
                 aria-checked={index === selectedIndex}
-                aria-label={`${bar.title}：${formatValue(bar.value)}`}
+                aria-label={t.common.labelled(bar.title, formatValue(bar.value))}
                 tabIndex={index === tabStop ? 0 : -1}
                 onClick={() => onSelect(bar.key)}
                 onKeyDown={(event) => onKeyDown(event, index)}

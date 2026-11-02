@@ -39,8 +39,8 @@ def test_status_reports_sync_health_without_personal_data(
 
     assert main(["status"]) == 0
     out = capsys.readouterr().out
-    assert "depository/-  交易 2 笔  2024-11-02 ~ 2026-10-15\n" in out
-    assert "credit/-  交易 0 笔  —  有账单信息" in out
+    assert "depository/-  2 transactions  2024-11-02 ~ 2026-10-15\n" in out
+    assert "credit/-  0 transactions  —  has statement" in out
     for private in ("Adv Plus", "Sapphire", "4821", "7781", "1,234.56", "56.78", "BLUE BOTTLE", "PAYROLL",
                     "987.65", "43.21", "10-03", "10-28"):  # fmt: skip
         assert private not in out

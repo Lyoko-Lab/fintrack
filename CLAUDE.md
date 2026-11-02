@@ -1,22 +1,23 @@
-# Fintrack · Claude Code 工作约定
+# Fintrack · Working agreement for Claude Code
 
-个人财务系统。设计见 docs/DESIGN.md，用法见 README.md。和用户交流用中文。
+A personal finance system. The design is in docs/DESIGN.md and usage in README.md. Talk to the user in Chinese.
 
-## 隐私：真实财务数据不进入对话
+## Privacy: real financial data stays out of the conversation
 
-用户已经连接了真实的银行账户。Claude Code 读到的一切（文件内容、命令输出、截图、网页）都会发送给 Anthropic，所以开发时只接触代码和 Sandbox 测试数据：
+The user has connected real bank accounts. Everything Claude Code reads (file contents, command output, screenshots, web pages) is sent to Anthropic, so development only touches code and Sandbox test data:
 
-- 不读取 `data/` 下的任何文件，包括正式和 Sandbox 数据库、`-wal`/`-shm` 文件和日志；也不通过 sqlite3、Python 或 `fintrack.db` 查询账本。
-- 不读取 Keychain 里 service 为 `fintrack` 的条目。
-- 不访问正式环境的服务（127.0.0.1:8787）：不 curl，不在浏览器面板或 Chrome 里打开，不截图。
-- 只运行输出不含个人信息的命令：`fintrack status`（连接状态、各账户的交易笔数和日期范围）、`fintrack secrets list`、`fintrack service status`、`uv run pytest`。新增读取真实数据的命令时，它的输出也必须守住这条。
-- 验证界面只用合成的演示数据：先运行 `uv run python scripts/seed_demo.py`，再启动 `.claude/launch.json` 里的 `fintrack-demo`（端口 8788）和 `web-dev`（端口 5173，`/api` 转发到 8788）。
-- 需要真实数据才能判断的事，请用户自己在网页上查看或修正，不要为此读取数据。分类的校准也是这样：用户在网页上修正，修正可以生成规则。
+- Don't read any file under `data/`: the production and Sandbox databases, their `-wal`/`-shm` files, the logs. Don't query the ledger through sqlite3, Python or `fintrack.db` either.
+- Don't read the Keychain entries whose service is `fintrack`.
+- Don't access the production server (127.0.0.1:8787): no curl, no opening it in the browser pane or in Chrome, no screenshots.
+- Only run commands whose output holds no personal information: `fintrack status` (connection status, each account's transaction count and date range), `fintrack secrets list`, `fintrack service status`, `uv run pytest`. A new command that reads real data has to keep to this in its output too.
+- Check the UI on made-up demo data only: run `uv run python scripts/seed_demo.py`, then start `fintrack-demo` (port 8788) and `web-dev` (port 5173, with `/api` forwarded to 8788) from `.claude/launch.json`.
+- When something can only be judged from real data, ask the user to look at it or fix it in the web app, rather than reading the data. Tuning categories works the same way: the user fixes them in the web app, and a fix can become a rule.
 
-`.claude/settings.json` 的 deny 规则和 `.claude/hooks/private_data_guard.py` 钩子会兜底拦截，但兜底拦不住所有写法，以上面的约定为准。
+The deny rules in `.claude/settings.json` and the `.claude/hooks/private_data_guard.py` hook are backstops, but they can't catch every way of writing a command; the rules above are what count.
 
-## 开发
+## Development
 
-- 后端测试：`uv run pytest`。前端类型检查：`npm --prefix web run typecheck`。
-- `web/dist` 就是正式服务正在用的前端，构建它会立即影响用户在用的页面。验证能否构建时，输出到临时目录：`npm --prefix web exec -- vite build web --outDir <临时目录>`。部署新版本（构建 `web/dist`、重启服务）要先征得用户同意。
-- 金额用整数美分，流入为正。改表结构时新增一个编号迁移文件，不修改已有的迁移。
+- Backend tests: `uv run pytest`. Frontend type check: `npm --prefix web run typecheck`.
+- `web/dist` is the frontend the production service is serving, so building it changes the page the user is using right away. To check that it builds, output to a scratch directory: `npm --prefix web exec -- vite build web --outDir <scratch directory>`. Deploying a new version (building `web/dist`, restarting the service) needs the user's go-ahead first.
+- Amounts are integer cents, with money in positive. A schema change gets a new numbered migration file; existing migrations are never edited.
+- English is the source language of the code, comments, command line and docs. Every string the web app shows goes in `web/src/i18n/en.ts`, with its translation in `zh.ts` (category names are translated there too, by id). A doc that changes gets its `.zh-CN.md` version changed with it.

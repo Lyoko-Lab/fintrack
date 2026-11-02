@@ -63,8 +63,8 @@ class PlaidClient:
         secret = keychain.get_secret(settings.plaid_secret_name)
         if not client_id or not secret:
             raise PlaidNotConfigured(
-                "还没有配置 Plaid 密钥，请运行 `uv run fintrack secrets set PLAID_CLIENT_ID` "
-                f"和 `uv run fintrack secrets set {settings.plaid_secret_name}`"
+                "Plaid keys aren't set up yet: run `uv run fintrack secrets set PLAID_CLIENT_ID` "
+                f"and `uv run fintrack secrets set {settings.plaid_secret_name}`"
             )
         return cls(settings.plaid_host, client_id, secret)
 

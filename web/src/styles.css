@@ -175,10 +175,17 @@ a {
   margin-top: auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  align-items: flex-start;
+  gap: 12px;
   padding: 0 8px;
   font-size: 12px;
   color: var(--ink-2);
+}
+
+.sync-status {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .env-badge {
@@ -911,6 +918,13 @@ button.cal-cell:hover:not(:disabled) {
   font-size: 12px;
 }
 
+/* A command to run, on a line of its own so it can be copied whole. */
+.notice code.command {
+  display: block;
+  width: fit-content;
+  margin-top: 6px;
+}
+
 .notice.error {
   border-color: var(--bad);
   color: var(--bad);
@@ -1042,6 +1056,11 @@ button.cal-cell:hover:not(:disabled) {
   color: var(--ink);
   font-weight: 550;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.segmented.compact button {
+  padding: 2px 8px;
+  font-size: 12px;
 }
 
 .panel-tools {
@@ -1607,7 +1626,14 @@ button.cal-cell:hover:not(:disabled) {
     padding: 6px 8px;
   }
 
+  /* Of the footer, only the language switch stays, at the end of the bar. */
   .sidebar-footer {
+    flex-shrink: 0;
+    margin: 0 0 0 auto;
+    padding: 0;
+  }
+
+  .sync-status {
     display: none;
   }
 

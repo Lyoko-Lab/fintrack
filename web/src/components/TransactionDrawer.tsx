@@ -2,38 +2,40 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, type Direction, type LedgerRow, type MatchField, type RuleCondition, type TransactionEdit } from "../api";
 import { dayHeading, money, shortDay } from "../format";
+import { useI18n, type Messages } from "../i18n";
 import { invalidateLedger } from "../queries";
 import { CategorySelect } from "./CategorySelect";
-import { MATCH_LABELS, RuleFields } from "./RuleFields";
+import { RuleFields } from "./RuleFields";
 import { accountLabel } from "./TransactionList";
 
 /** Why the automatic category was chosen (enrich.py's rule codes). */
-function explain(row: LedgerRow): string {
+function explain(row: LedgerRow, t: Messages): string {
+  const reasons = t.drawer.reasons;
   switch (row.category_rule) {
     case "user_rule":
-      return `按你的规则「${MATCH_LABELS[row.user_rule_field ?? "description"]} ${row.user_rule_pattern ?? ""}」归类。`;
+      return reasons.userRule(`${t.rules.match[row.user_rule_field ?? "description"]} ${row.user_rule_pattern ?? ""}`);
     case "account":
-      return "贷款、投资等非现金账户上的交易，不计入收支。";
+      return reasons.account;
     case "p2p":
-      return row.amount_cents > 0
-        ? "个人转账收入（Zelle、Venmo 等），按 AA 或报销收回处理，冲减支出。"
-        : "个人转账转出（Zelle、Venmo 等），计入支出。";
+      return row.amount_cents > 0 ? reasons.p2pIn : reasons.p2pOut;
     case "card_payment":
-      return "识别为信用卡还款，不计入收支。";
+      return reasons.cardPayment;
     case "payroll":
-      return "描述里有工资入账的关键词。";
+      return reasons.payroll;
     case "tax_refund":
-      return "识别为退税。";
+      return reasons.taxRefund;
     case "interest":
-      return "识别为利息收入。";
+      return reasons.interest;
     case "pfc":
-      return `依据 Plaid 的分类：${row.pfc_detailed ?? "—"}。`;
+      return reasons.plaid(row.pfc_detailed ?? "—");
     case "direction":
-      return `Plaid 的分类（${row.pfc_detailed ?? "—"}）与资金方向不符，已按方向调整。`;
+      return reasons.direction(row.pfc_detailed ?? "—");
     case "pair":
-      return `和 ${row.peer_account_name ?? "另一个账户"}${row.peer_account_mask ? ` ··${row.peer_account_mask}` : ""} 上一笔金额相同、方向相反的交易配成了一对转账，不计入收支。`;
+      return reasons.pair(
+        `${row.peer_account_name ?? reasons.otherAccount}${row.peer_account_mask ? ` ··${row.peer_account_mask}` : ""}`,
+      );
     default:
-      return "没有可用的分类信息，按资金方向归类。";
+      return reasons.fallback;
   }
 }
 
@@ -44,6 +46,7 @@ function keywordFrom(row: LedgerRow): string {
 }
 
 export function TransactionDrawer({ row, onClose }: { row: LedgerRow; onClose(): void }) {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const categories = useQuery({ queryKey: ["categories"], queryFn: api.categories, staleTime: Infinity });
   const [categoryId, setCategoryId] = useState(row.category_id ?? "");
@@ -124,8 +127,8 @@ export function TransactionDrawer({ row, onClose }: { row: LedgerRow; onClose():
         onClick={(event) => event.stopPropagation()}
       >
         <header className="drawer-header">
-          <h2 id="drawer-title">{row.display_name ?? "交易详情"}</h2>
-          <button ref={closeButton} type="button" className="icon-button" aria-label="关闭" onClick={onClose}>
+          <h2 id="drawer-title">{row.display_name ?? t.drawer.title}</h2>
+          <button ref={closeButton} type="button" className="icon-button" aria-label={t.common.close} onClick={onClose}>
             ×
           </button>
         </header>
@@ -134,56 +137,58 @@ export function TransactionDrawer({ row, onClose }: { row: LedgerRow; onClose():
         </p>
 
         <dl className="details">
-          <dt>交易日期</dt>
+          <dt>{t.drawer.date}</dt>
           <dd>
             {dayHeading(row.transaction_date)}
-            {row.posted_date !== row.transaction_date && <span className="muted">（{shortDay(row.posted_date)} 入账）</span>}
+            {row.posted_date !== row.transaction_date && (
+              <span className="muted">{t.drawer.postedOn(shortDay(row.posted_date))}</span>
+            )}
           </dd>
-          <dt>账户</dt>
+          <dt>{t.drawer.account}</dt>
           <dd>
             {accountLabel(row)} · {row.account_name}
           </dd>
-          <dt>状态</dt>
-          <dd>{row.pending ? "待入账" : "已入账"}</dd>
-          <dt>银行原始描述</dt>
+          <dt>{t.drawer.status}</dt>
+          <dd>{row.pending ? t.transactions.pending : t.drawer.posted}</dd>
+          <dt>{t.drawer.bankDescription}</dt>
           <dd className="raw">{row.original_description ?? "—"}</dd>
         </dl>
 
         <form className="drawer-form" onSubmit={submit}>
-          <label htmlFor="drawer-category">分类</label>
+          <label htmlFor="drawer-category">{t.drawer.category}</label>
           <CategorySelect
             id="drawer-category"
             categories={categories.data ?? []}
             value={categoryId}
             onChange={setCategoryId}
           />
-          <p className="hint">{row.category_edited ? "这是你手动设置的分类。" : `自动分类：${explain(row)}`}</p>
+          <p className="hint">{row.category_edited ? t.drawer.manual : t.drawer.automatic(explain(row, t))}</p>
 
           <div className="rule-option">
             <label className="checkbox">
               <input type="checkbox" checked={applyRule} onChange={(event) => setApplyRule(event.target.checked)} />
-              以后同样的交易也归入这个分类
+              {t.drawer.applyRule}
             </label>
             {applyRule && (
               <>
                 <RuleFields value={condition} onChange={onRuleChange} />
-                <p className="hint">会新建一条规则，历史交易也会重新归类；单独改过分类的交易不受影响。</p>
+                <p className="hint">{t.drawer.ruleHint}</p>
               </>
             )}
           </div>
 
-          <label htmlFor="drawer-note">备注</label>
+          <label htmlFor="drawer-note">{t.drawer.note}</label>
           <textarea id="drawer-note" rows={2} value={note} onChange={(event) => setNote(event.target.value)} />
 
           {(save.error ?? revert.error) && <p className="error">{(save.error ?? revert.error)?.message}</p>}
           <div className="drawer-actions">
             {row.category_edited ? (
               <button type="button" disabled={busy} onClick={() => revert.mutate()}>
-                恢复自动分类
+                {t.drawer.revert}
               </button>
             ) : null}
             <button type="submit" className="primary" disabled={!canSave || busy}>
-              {save.isPending ? "保存中…" : ruleReady ? "保存并应用规则" : "保存"}
+              {save.isPending ? t.common.saving : ruleReady ? t.drawer.saveWithRule : t.common.save}
             </button>
           </div>
         </form>

@@ -38,7 +38,7 @@ def agent_plist(settings: Settings) -> dict:
 
 def install(settings: Settings) -> Path:
     if not (settings.web_dist / "index.html").exists():
-        raise ServiceError("前端还没有构建：先运行 `npm --prefix web install` 和 `npm --prefix web run build`")
+        raise ServiceError("The web app isn't built yet: run `npm --prefix web install` and `npm --prefix web run build` first")
     plist = agent_plist(settings)
     Path(plist["StandardOutPath"]).parent.mkdir(parents=True, exist_ok=True)
     PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -51,7 +51,7 @@ def install(settings: Settings) -> Path:
         time.sleep(0.2)
     result = subprocess.run(["launchctl", "bootstrap", _domain(), str(PLIST_PATH)], capture_output=True, text=True)
     if result.returncode != 0:
-        raise ServiceError(f"launchctl bootstrap 失败：{result.stderr.strip()}")
+        raise ServiceError(f"launchctl bootstrap failed: {result.stderr.strip()}")
     return PLIST_PATH
 
 
@@ -67,8 +67,8 @@ def uninstall() -> None:
 def status() -> str:
     result = subprocess.run(["launchctl", "print", f"{_domain()}/{LABEL}"], capture_output=True, text=True)
     if result.returncode != 0:
-        return "未安装"
+        return "not installed"
     fields = dict(
         line.strip().split(" = ", 1) for line in result.stdout.splitlines() if line.strip().startswith(("state = ", "pid = "))
     )
-    return f"{fields.get('state', 'unknown')}" + (f"（pid {fields['pid']}）" if "pid" in fields else "")
+    return f"{fields.get('state', 'unknown')}" + (f" (pid {fields['pid']})" if "pid" in fields else "")

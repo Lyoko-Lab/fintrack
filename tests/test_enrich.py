@@ -22,6 +22,11 @@ def category(t: Txn, kinds: dict[str, str]) -> str:
     return classify(t, kinds).category_id
 
 
+def test_category_names_are_stored_in_english(db: sqlite3.Connection):
+    names = [row["name"] for row in db.execute("SELECT name FROM categories")]
+    assert len(names) == 61 and all(name.isascii() for name in names)  # the web app translates them by id
+
+
 def test_every_mapped_category_exists_and_is_assignable(db: sqlite3.Connection):
     leaves = {row["id"] for row in db.execute("SELECT id FROM categories c WHERE NOT EXISTS (SELECT 1 FROM categories k WHERE k.parent_id = c.id)")}
     assert {target for _, target in PFC_CATEGORIES} <= leaves
