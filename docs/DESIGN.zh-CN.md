@@ -53,7 +53,7 @@ Plaid API
 ```
 
 - **单进程**：一个 FastAPI 进程同时提供 API、托管前端、跑定时任务，交给 launchd 管理。只监听 127.0.0.1，并校验 Host 头，防止 DNS rebinding。
-- **SQLite（WAL 模式）**：表结构写在编号的 SQL 迁移文件里，版本号记在 `PRAGMA user_version`。数据访问直接写 SQL，不用 ORM：分析视图本身就是 SQL，Ask 时 Claude 查的也是这些视图。
+- **SQLite（WAL 模式）**：表结构写在编号的 SQL 迁移文件里，版本号记在 `PRAGMA user_version`。迁移只向前进行；对已有数据的数据库执行迁移前，服务会先把它复制到 `data/backups/`（保留最近 5 份）。数据访问直接写 SQL，不用 ORM：分析视图本身就是 SQL，Ask 时 Claude 查的也是这些视图。
 - **定时拉取，不用 webhook**：本地没有公网地址，收不到 Plaid 的 webhook。
 
 ## 3. 数据源：Plaid Trial
@@ -188,4 +188,5 @@ Claude Code 读到的内容都会发送给 Anthropic，所以开发时只接触�
 - [ ] 账户管理：给已连接的银行补选或移除卡片（update mode 选卡）、把账户排除在统计之外、授权到期提醒、用 CSV 导入补齐更早的历史
 - [x] 信用卡还款提醒（2026-11-01）：同步时取信用卡账单（Liabilities），账户页显示本期账单和还款日，总览列出待还的卡
 - [x] 以英文为源语言（2026-11-01）：网页提供中文翻译；命令行、日志和 API 改用英文；文档提供中英两版
+- [x] 版本发布（2026-11-07）：推送版本标签后由 CI 发布 GitHub Release；`fintrack update` 可安装最新稳定版、指定版本或开发版
 - [ ] 之后：识别订阅和周期扣费、异常交易提醒、预算、投资账户

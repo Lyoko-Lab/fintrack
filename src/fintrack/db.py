@@ -1,7 +1,8 @@
 """SQLite connections and schema migrations.
 
 The schema lives in numbered SQL files under migrations/, applied in order and
-tracked with PRAGMA user_version.
+tracked with PRAGMA user_version. Before migrating a database that already holds
+data, a copy goes to backups/ beside it.
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from importlib import resources
 from pathlib import Path
+
+BACKUPS_KEPT = 5
 
 
 def connect(path: Path) -> sqlite3.Connection:
@@ -52,10 +55,11 @@ def migrate(conn: sqlite3.Connection) -> int:
         (f for f in resources.files("fintrack.migrations").iterdir() if f.name.endswith(".sql")),
         key=lambda f: f.name,
     )
-    for script in scripts:
+    pending = [script for script in scripts if int(script.name.split("_", 1)[0]) > version]
+    if pending and version > 0:
+        backup(conn, version)
+    for script in pending:
         target = int(script.name.split("_", 1)[0])
-        if target <= version:
-            continue
         try:
             conn.executescript(f"BEGIN;\n{script.read_text()}\nPRAGMA user_version = {target};\nCOMMIT;")
         except BaseException:
@@ -64,6 +68,32 @@ def migrate(conn: sqlite3.Connection) -> int:
             raise
         version = target
     return version
+
+
+def backup(conn: sqlite3.Connection, version: int) -> Path | None:
+    """Copy the database to backups/<name>.v<version>.<time>.db, keeping the latest few; None for an in-memory one.
+
+    A migration that fails is rolled back, but one that runs and gets the data wrong would commit; the copy
+    taken before it is the way back. SQLite's backup API copies a consistent snapshot even while the
+    server has the database open.
+    """
+    path = Path(conn.execute("PRAGMA database_list").fetchone()[2] or "")
+    if not path.name:
+        return None
+    folder = path.parent / "backups"
+    folder.mkdir(exist_ok=True)
+    target = folder / f"{path.stem}.v{version}.{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}.db"
+    copy = sqlite3.connect(target)
+    try:
+        conn.backup(copy)
+    finally:
+        copy.close()
+    def taken_at(copy: Path) -> str:
+        return copy.name.rsplit(".", 2)[1]  # the time in <name>.v<version>.<time>.db; by name, v10 would come before v4
+
+    for old in sorted(folder.glob(f"{path.stem}.v*.db"), key=taken_at)[:-BACKUPS_KEPT]:
+        old.unlink()
+    return target
 
 
 def utcnow() -> str:

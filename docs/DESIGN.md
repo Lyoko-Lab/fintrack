@@ -53,7 +53,7 @@ Plaid API
 ```
 
 - **One process**: a single FastAPI process serves the API and the frontend and runs the scheduled jobs, managed by launchd. It only listens on 127.0.0.1 and checks the Host header, against DNS rebinding.
-- **SQLite (WAL mode)**: the schema is in numbered SQL migration files, with the version kept in `PRAGMA user_version`. Data access is plain SQL, with no ORM: the analytics views are SQL anyway, and they're also what Claude queries for Ask.
+- **SQLite (WAL mode)**: the schema is in numbered SQL migration files, with the version kept in `PRAGMA user_version`. Migrations only ever move forward, and before migrating a database that holds data, the server copies it to `data/backups/` (the latest 5 copies are kept). Data access is plain SQL, with no ORM: the analytics views are SQL anyway, and they're also what Claude queries for Ask.
 - **Polling, not webhooks**: running locally, there's no public address for Plaid's webhooks to reach.
 
 ## 3. Data source: Plaid Trial
@@ -188,4 +188,5 @@ The database isn't encrypted separately; it relies on macOS FileVault full-disk 
 - [ ] Account management: adding or removing cards on a connected bank (account selection in update mode), leaving an account out of the figures, reminders before consent expires, CSV import for older history
 - [x] Credit card payments (2026-11-01): card statements (Liabilities) fetched on every sync, statements and due dates on the Accounts page, the cards still to pay on the Overview
 - [x] English as the source language (2026-11-01): the web app comes with a Chinese translation; the command line, logs and API are in English; the docs come in both languages
+- [x] Releases (2026-11-07): version tags publish a GitHub release through CI, and `fintrack update` installs the latest stable release, a given one, or the development version
 - [ ] Later: subscriptions and recurring charges, unusual transaction alerts, budgets, investment accounts
