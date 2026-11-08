@@ -106,7 +106,19 @@ To update, run:
 uv run fintrack update
 ```
 
-It pulls the latest code from GitHub, installs any new dependencies, builds the web app and restarts the service on the new code, then checks the service stays up. If the database schema has changed, the service migrates it when it starts. Commits you made locally are deployed too. The update stops before changing anything if the checkout has uncommitted changes or has diverged from GitHub, and a failed build leaves the running app as it was.
+It moves to the latest stable [release](https://github.com/Lyoko-Lab/fintrack/releases), installs any new dependencies, builds the web app and restarts the service on the new code, then checks the service stays up. If the database schema has changed, the service migrates it when it starts. To pick the version instead:
+
+```bash
+uv run fintrack update 0.2.0
+```
+
+```bash
+uv run fintrack update --dev
+```
+
+The first goes to a given release; the second follows the latest code on GitHub (the development version), and deploys commits you made locally too. A release candidate such as `0.3.0-rc.1` is only installed when you name it.
+
+The update stops before changing anything if the checkout has uncommitted changes, if it would roll a development version back to an older release without being asked, or if the version is older than your database's last migration, which that version couldn't run on. A failed build leaves the running app as it was.
 
 ## Language
 
@@ -121,7 +133,7 @@ The web app comes in English and Simplified Chinese. Switch at the bottom of the
 | `uv run fintrack status` | Shows the connections, and each account's transaction count and date range (no account names, last digits or balances) |
 | `uv run fintrack secrets list` | Shows which secrets are set (not their values) |
 | `uv run fintrack service install` | Registers the background service, which starts when you log in |
-| `uv run fintrack update` | Updates to the latest code, rebuilds the web app and restarts the service |
+| `uv run fintrack update` | Updates to the latest stable release, rebuilds the web app and restarts the service (`update 0.2.0` for a given release, `update --dev` for the latest code) |
 | `uv run fintrack --version` | Shows the installed version |
 | `uv run pytest` | Runs the backend tests |
 | `uv run python scripts/seed_demo.py` | Writes two years of made-up transactions to `.dev-data/`, for development without real data |
@@ -131,6 +143,24 @@ The web app comes in English and Simplified Chinese. Switch at the bottom of the
 Data lives in `data/`, which is in `.gitignore`. Sandbox and Production each have their own database file, so test data never mixes into your real ledger.
 
 For the privacy design, see section 8 of [docs/DESIGN.md](docs/DESIGN.md): real data stays on this Mac by default, and developing with Claude Code doesn't read it either (the rules are in [CLAUDE.md](CLAUDE.md)).
+
+## Releasing
+
+Releases use [semantic versioning](https://semver.org/), and [CHANGELOG.md](CHANGELOG.md) says what each one changed. To publish one:
+
+1. Set the version in `pyproject.toml` and `web/package.json` (for a release candidate, `0.3.0rc1` and `0.3.0-rc.1`), and run `uv lock` and `npm --prefix web install` so the lockfiles follow.
+2. In both changelogs, rename the "Unreleased" heading to the version and date, and start a new, empty "Unreleased" section.
+3. Commit, tag and push the tag:
+
+```bash
+git tag -a v0.2.0 -m "Fintrack 0.2.0"
+```
+
+```bash
+git push origin main v0.2.0
+```
+
+The Release workflow then runs the tests and the build, checks that the tag matches both version numbers, and publishes the GitHub release with the changelog section as its notes (a tag such as `v0.3.0-rc.1` becomes a pre-release).
 
 ## License
 

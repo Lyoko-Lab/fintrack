@@ -32,7 +32,10 @@ def main(argv: list[str] | None = None) -> int:
     secret_actions.add_parser("list", help="show which secrets are set, never their values")
     service_command = commands.add_parser("service", help="run the web app in the background from login (macOS launchd)")
     service_command.add_argument("action", choices=("install", "uninstall", "status"))
-    commands.add_parser("update", help="pull the latest code from GitHub, rebuild, and restart the background service")
+    update_command = commands.add_parser("update", help="update to the latest stable release, rebuild, and restart the background service")
+    update_target = update_command.add_mutually_exclusive_group()
+    update_target.add_argument("version", nargs="?", help="a release to go to instead, such as 0.2.0")
+    update_target.add_argument("--dev", action="store_true", help="follow the latest code on GitHub instead of releases")
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -158,7 +161,7 @@ def _service(args: argparse.Namespace) -> int:
 
 def _update(args: argparse.Namespace) -> int:
     settings = load_settings()
-    running = update.update(settings)
+    running = update.update(settings, version=args.version, dev=args.dev)
     print(f"Updated to {running}. Web app: http://127.0.0.1:{settings.port}")
     return 0
 

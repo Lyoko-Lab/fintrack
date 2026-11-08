@@ -106,7 +106,19 @@ uv run fintrack service install
 uv run fintrack update
 ```
 
-它会从 GitHub 拉取最新代码、安装新增的依赖、构建前端、让服务用新代码重启，最后确认服务稳定运行。数据库结构如有变化，服务启动时会自动迁移。你在本机提交的改动也会一起部署。如果本地有未提交的改动，或者和 GitHub 上的分支分叉了，它会在动手前停下；前端构建失败时，正在运行的网页保持原样。
+它会切换到最新的稳定[版本](https://github.com/Lyoko-Lab/fintrack/releases)、安装新增的依赖、构建前端、让服务用新代码重启，最后确认服务稳定运行。数据库结构如有变化，服务启动时会自动迁移。也可以自己选版本：
+
+```bash
+uv run fintrack update 0.2.0
+```
+
+```bash
+uv run fintrack update --dev
+```
+
+前一条切换到指定版本；后一条跟随 GitHub 上的最新代码（开发版），你在本机提交的改动也会一起部署。`0.3.0-rc.1` 这样的候选版只有在你点名时才会安装。
+
+以下情况它会在动手前停下：本地有未提交的改动；没有明确指定就要把开发版退回到旧的发布版；目标版本比数据库最近一次迁移还旧，那个版本没法在你的数据上运行。前端构建失败时，正在运行的网页保持原样。
 
 ## 界面语言
 
@@ -121,7 +133,7 @@ uv run fintrack update
 | `uv run fintrack status` | 查看连接状态，以及各账户的交易笔数和日期范围（不显示名称、尾号、余额） |
 | `uv run fintrack secrets list` | 查看哪些密钥已配置（不显示内容） |
 | `uv run fintrack service install` | 注册为开机自启的后台服务 |
-| `uv run fintrack update` | 更新到最新代码，重新构建前端并重启服务 |
+| `uv run fintrack update` | 更新到最新的稳定版，重新构建前端并重启服务（`update 0.2.0` 指定版本，`update --dev` 跟随最新代码） |
 | `uv run fintrack --version` | 查看当前版本 |
 | `uv run pytest` | 运行后端测试 |
 | `uv run python scripts/seed_demo.py` | 生成两年的合成交易，写入 `.dev-data/`，供开发时代替真实数据 |
@@ -131,6 +143,24 @@ uv run fintrack update
 数据在 `data/` 目录（已加入 `.gitignore`），Sandbox 和 Production 各用一个数据库文件，测试数据不会混进真实账本。
 
 隐私设计见 [docs/DESIGN.zh-CN.md](docs/DESIGN.zh-CN.md) 第 8 节：真实数据默认只留在本机，用 Claude Code 开发时也不会读取它（规则在 [CLAUDE.md](CLAUDE.md)）。
+
+## 发布版本
+
+版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)，每个版本改了什么写在 [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md)。发布步骤：
+
+1. 修改 `pyproject.toml` 和 `web/package.json` 里的版本号（候选版分别写成 `0.3.0rc1` 和 `0.3.0-rc.1`），然后运行 `uv lock` 和 `npm --prefix web install`，让锁文件同步。
+2. 在中英两份更新日志里，把 "Unreleased" 标题改成版本号和日期，再新开一个空的 "Unreleased" 小节。
+3. 提交，打标签并推送标签：
+
+```bash
+git tag -a v0.2.0 -m "Fintrack 0.2.0"
+```
+
+```bash
+git push origin main v0.2.0
+```
+
+之后 Release 工作流会跑测试和构建，核对标签和两处版本号一致，再用更新日志里的那一节作为说明发布 GitHub Release（`v0.3.0-rc.1` 这样的标签会标为预发布）。
 
 ## 许可证
 
