@@ -59,16 +59,42 @@ def _loaded() -> bool:
     return subprocess.run(["launchctl", "print", f"{_domain()}/{LABEL}"], capture_output=True).returncode == 0
 
 
+def installed() -> bool:
+    return PLIST_PATH.exists()
+
+
+def wait_until_running(settings: Settings, timeout: float = 20, settle: float = 3) -> int:
+    """The server's pid once it has stayed up for `settle` seconds, so a crash on startup isn't taken for success."""
+    deadline = time.monotonic() + timeout
+    pid, since = None, time.monotonic()
+    while time.monotonic() < deadline:
+        current = (_fields() or {}).get("pid")
+        if current is None or current != pid:
+            pid, since = current, time.monotonic()
+        elif time.monotonic() - since >= settle:
+            return int(pid)
+        time.sleep(0.5)
+    log = settings.data_dir / "logs" / "server.log"
+    raise ServiceError(f"The background service didn't stay up after restarting; its log is {log}")
+
+
 def uninstall() -> None:
     subprocess.run(["launchctl", "bootout", f"{_domain()}/{LABEL}"], capture_output=True, check=False)
     PLIST_PATH.unlink(missing_ok=True)
 
 
-def status() -> str:
+def _fields() -> dict[str, str] | None:
+    """The agent's state and pid as launchd reports them, or None when it isn't loaded."""
     result = subprocess.run(["launchctl", "print", f"{_domain()}/{LABEL}"], capture_output=True, text=True)
     if result.returncode != 0:
-        return "not installed"
-    fields = dict(
+        return None
+    return dict(
         line.strip().split(" = ", 1) for line in result.stdout.splitlines() if line.strip().startswith(("state = ", "pid = "))
     )
+
+
+def status() -> str:
+    fields = _fields()
+    if fields is None:
+        return "not installed"
     return f"{fields.get('state', 'unknown')}" + (f" (pid {fields['pid']})" if "pid" in fields else "")

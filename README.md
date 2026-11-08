@@ -100,17 +100,13 @@ uv run fintrack service install
 
 From then on, just open <http://127.0.0.1:8787>. `uv run fintrack service status` shows how the service is doing, and `uv run fintrack service uninstall` removes it. The log is at `data/logs/server.log`. While the service is running, don't also start `fintrack serve` by hand, or the two will fight over the same port.
 
-After updating the code, build the web app again, then register the service again so it restarts on the new code:
+To update, run:
 
 ```bash
-npm --prefix web run build
+uv run fintrack update
 ```
 
-```bash
-uv run fintrack service install
-```
-
-If the database schema has changed, the service migrates it when it starts.
+It pulls the latest code from GitHub, installs any new dependencies, builds the web app and restarts the service on the new code, then checks the service stays up. If the database schema has changed, the service migrates it when it starts. Commits you made locally are deployed too. The update stops before changing anything if the checkout has uncommitted changes or has diverged from GitHub, and a failed build leaves the running app as it was.
 
 ## Language
 
@@ -125,6 +121,8 @@ The web app comes in English and Simplified Chinese. Switch at the bottom of the
 | `uv run fintrack status` | Shows the connections, and each account's transaction count and date range (no account names, last digits or balances) |
 | `uv run fintrack secrets list` | Shows which secrets are set (not their values) |
 | `uv run fintrack service install` | Registers the background service, which starts when you log in |
+| `uv run fintrack update` | Updates to the latest code, rebuilds the web app and restarts the service |
+| `uv run fintrack --version` | Shows the installed version |
 | `uv run pytest` | Runs the backend tests |
 | `uv run python scripts/seed_demo.py` | Writes two years of made-up transactions to `.dev-data/`, for development without real data |
 | `FINTRACK_ENV=sandbox FINTRACK_DATA_DIR=.dev-data FINTRACK_PORT=8788 uv run fintrack serve` | Starts a demo server on the made-up data (port 8788) |

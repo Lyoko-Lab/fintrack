@@ -100,17 +100,13 @@ uv run fintrack service install
 
 之后直接打开 <http://127.0.0.1:8787>。用 `uv run fintrack service status` 查看服务状态，用 `uv run fintrack service uninstall` 移除。日志在 `data/logs/server.log`。服务运行期间不要再手动运行 `fintrack serve`，否则两者会抢同一个端口。
 
-代码更新后，先重新构建前端，再重新注册一次服务，服务就会用新代码重启：
+更新时运行：
 
 ```bash
-npm --prefix web run build
+uv run fintrack update
 ```
 
-```bash
-uv run fintrack service install
-```
-
-数据库结构如有变化，服务启动时会自动迁移。
+它会从 GitHub 拉取最新代码、安装新增的依赖、构建前端、让服务用新代码重启，最后确认服务稳定运行。数据库结构如有变化，服务启动时会自动迁移。你在本机提交的改动也会一起部署。如果本地有未提交的改动，或者和 GitHub 上的分支分叉了，它会在动手前停下；前端构建失败时，正在运行的网页保持原样。
 
 ## 界面语言
 
@@ -125,6 +121,8 @@ uv run fintrack service install
 | `uv run fintrack status` | 查看连接状态，以及各账户的交易笔数和日期范围（不显示名称、尾号、余额） |
 | `uv run fintrack secrets list` | 查看哪些密钥已配置（不显示内容） |
 | `uv run fintrack service install` | 注册为开机自启的后台服务 |
+| `uv run fintrack update` | 更新到最新代码，重新构建前端并重启服务 |
+| `uv run fintrack --version` | 查看当前版本 |
 | `uv run pytest` | 运行后端测试 |
 | `uv run python scripts/seed_demo.py` | 生成两年的合成交易，写入 `.dev-data/`，供开发时代替真实数据 |
 | `FINTRACK_ENV=sandbox FINTRACK_DATA_DIR=.dev-data FINTRACK_PORT=8788 uv run fintrack serve` | 用合成数据启动演示服务（8788 端口） |

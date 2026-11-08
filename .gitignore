@@ -4,6 +4,8 @@ __pycache__/
 .DS_Store
 node_modules/
 web/dist/
+web/dist.next/
+web/dist.old/
 
 # Local data and configuration: databases, backups, environment overrides.
 data/

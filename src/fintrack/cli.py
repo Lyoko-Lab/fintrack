@@ -6,8 +6,9 @@ import argparse
 import getpass
 import logging
 import sys
+from importlib.metadata import version
 
-from . import items, keychain, service, sync
+from . import items, keychain, service, sync, update
 from .config import load_settings
 from .db import open_db
 from .plaid import SANDBOX_INSTITUTION, PlaidClient, PlaidError, PlaidNotConfigured
@@ -15,6 +16,7 @@ from .plaid import SANDBOX_INSTITUTION, PlaidClient, PlaidError, PlaidNotConfigu
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fintrack", description="Fintrack, a personal finance tracker")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {version('fintrack')}")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("serve", help="run the web app at http://127.0.0.1:8787")
     commands.add_parser("sync", help="sync every connected bank now")
@@ -30,6 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     secret_actions.add_parser("list", help="show which secrets are set, never their values")
     service_command = commands.add_parser("service", help="run the web app in the background from login (macOS launchd)")
     service_command.add_argument("action", choices=("install", "uninstall", "status"))
+    commands.add_parser("update", help="pull the latest code from GitHub, rebuild, and restart the background service")
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -40,10 +43,11 @@ def main(argv: list[str] | None = None) -> int:
         "sandbox-link": _sandbox_link,
         "secrets": _secrets,
         "service": _service,
+        "update": _update,
     }
     try:
         return handlers[args.command](args)
-    except (PlaidNotConfigured, PlaidError, service.ServiceError) as e:
+    except (PlaidNotConfigured, PlaidError, service.ServiceError, update.UpdateError) as e:
         print(e, file=sys.stderr)
         return 1
 
@@ -149,6 +153,13 @@ def _service(args: argparse.Namespace) -> int:
         print("Background service removed")
     else:
         print(f"Background service: {service.status()}")
+    return 0
+
+
+def _update(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    running = update.update(settings)
+    print(f"Updated to {running}. Web app: http://127.0.0.1:{settings.port}")
     return 0
 
 
