@@ -6,8 +6,11 @@ What changed in each release. Versions follow [semantic versioning](https://semv
 
 ## Unreleased
 
+## 0.2.0 - 2026-11-07
+
 - `fintrack update` goes to the latest stable release by default. `fintrack update 0.2.0` goes to a given release, and `fintrack update --dev` follows the latest code on GitHub. It won't move to a version older than your database's last migration.
 - Pushing a version tag publishes a GitHub release once the tests and the build pass, with its notes taken from this changelog.
+- Before a database change, the server copies your database to `data/backups/`, keeping the latest 5 copies.
 
 ## 0.1.0 - 2026-11-07
 

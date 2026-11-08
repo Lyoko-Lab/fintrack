@@ -6,8 +6,11 @@
 
 ## Unreleased
 
+## 0.2.0 - 2026-11-07
+
 - `fintrack update` 默认更新到最新的稳定版。`fintrack update 0.2.0` 切换到指定版本，`fintrack update --dev` 跟随 GitHub 上的最新代码。目标版本比数据库最近一次迁移还旧时，它不会切换过去。
 - 推送版本标签后，测试和构建通过就会自动发布 GitHub Release，说明取自这份更新日志。
+- 数据库结构变化前，服务会先把数据库复制一份到 `data/backups/`，保留最近 5 份。
 
 ## 0.1.0 - 2026-11-07
 
