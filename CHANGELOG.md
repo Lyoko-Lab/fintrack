@@ -6,9 +6,12 @@ What changed in each release. Versions follow [semantic versioning](https://semv
 
 ## Unreleased
 
+## 0.4.0 - 2026-11-14
+
 - On the Accounts page, an account can be renamed (the new name shows everywhere; empty brings back the bank's) and left out of totals: it then counts toward no income, spending, net cash position or forecast, while its transactions still show.
 - Every statement the bank reports about a card is kept, not only the latest, for features that look back at them.
 - When the bank withdraws a transaction and sends it again under a new id, your category and note on it move to the new one.
+- This release changes the database (two migrations). When the server starts on it, it first backs the database up to `data/backups/`.
 
 ## 0.3.0 - 2026-11-14
 
