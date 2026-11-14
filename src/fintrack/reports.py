@@ -99,15 +99,14 @@ def card_payments(conn: sqlite3.Connection, today: date) -> list[dict[str, Any]]
     """
     rows = conn.execute(
         """
-        SELECT a.id AS account_id, a.name AS account_name, a.mask AS account_mask, i.institution_name,
+        SELECT a.id AS account_id, a.name AS account_name, a.mask AS account_mask, a.institution_name,
                s.statement_date, s.statement_cents, s.minimum_cents, s.due_date,
                s.last_payment_cents, s.last_payment_date, s.is_overdue,
                (SELECT COALESCE(SUM(l.amount_cents), 0) FROM v_ledger l
                 WHERE l.account_id = a.id AND l.flow_type = 'transfer' AND l.amount_cents > 0
                   AND l.transaction_date > s.statement_date) AS ledger_paid_cents
-        FROM card_statements s
-        JOIN accounts a ON a.id = s.account_id
-        JOIN items i ON i.id = a.item_id
+        FROM v_card_statements s
+        JOIN v_accounts a ON a.id = s.account_id
         WHERE a.type = 'credit'
         """
     ).fetchall()

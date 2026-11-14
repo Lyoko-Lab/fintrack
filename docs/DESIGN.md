@@ -14,7 +14,7 @@ A personal finance system: every day it syncs all transactions from BOA, Chase a
 | **Transactions** | The 7 accounts' transactions in one feed by date (called Activity in the code, at `/activity`); transfers are listed with a ⇄ mark but don't count as income or spending |
 | **Insights** | Cash flow trends, where the money goes, comparisons with earlier periods and what drove the change, by day, week, month or year |
 | **Ask Fintrack** | Conversational analysis of all transactions with Claude |
-| **Accounts** | Balances, credit limits, each card's statement and due date, connection status, renewing consent |
+| **Accounts** | Balances, credit limits, each card's statement and due date, connection status, renewing consent; renaming an account, and leaving one out of totals |
 | **Rules** | Category rules; changing a category by hand can make one in a click |
 
 Definitions:
@@ -73,8 +73,8 @@ Plaid API
 | Layer | Tables | Rules |
 |---|---|---|
 | Raw | `raw_events` | Every API response as received, append-only |
-| Ledger | `items` `accounts` `transactions` `balance_snapshots` `card_statements` `sync_runs` | The cleaned-up, unified ledger |
-| Enrichment | `categories` `transaction_enrichment` `transaction_overrides` | Automatic categories are recomputed in full after every sync; the user's edits are kept apart, and a sync never overwrites them |
+| Ledger | `items` `accounts` `transactions` `balance_snapshots` `card_statements` `sync_runs` | The cleaned-up, unified ledger. `card_statements` is a history: a row for each distinct report the bank gives about a card, the latest per card in `v_card_statements` |
+| Enrichment | `categories` `transaction_enrichment` `transaction_overrides` `account_settings` | Automatic categories are recomputed in full after every sync. What the user decided (edits to transactions, an account's nickname, leaving it out of totals) is kept apart, and a sync never overwrites it; `v_accounts` applies the account settings, and every total skips an excluded account |
 | Views | `v_ledger` | Overview, Transactions, Insights, the forecast and Ask all read only this view, so every page counts the same way. Views are code: `views.sql` creates them afresh whenever the database is opened, and migrations only hold tables and data |
 
 Conventions:
@@ -86,7 +86,7 @@ Conventions:
 - **No secrets in the database**: the Plaid access tokens and all API keys are in the macOS Keychain (service `fintrack`).
 - **One definition of the basic quantities**: income and spending per day (flows) and cash, card debt and net cash position on a day (positions) are defined in `measures.py`, and every page that shows them asks there.
 - **The category decides the flow type**: every category is expense, income or transfer, and `flow_type` follows it. So the user only ever changes the category; changing it to Between accounts, say, marks the transaction as a transfer. A positive amount in a spending category is a refund and offsets spending.
-- **When a pending transaction posts**: Plaid replaces it with a new, posted transaction, and the user's edits on the pending one carry over to it.
+- **When a pending transaction posts**: Plaid replaces it with a new, posted transaction, and the user's edits on the pending one carry over to it. When the bank withdraws a transaction and sends it again under a new id, the edits move to the replacement: same account, amount and payee, dated within three days, first seen within a week of the withdrawal.
 
 ## 5. Sync
 
@@ -187,7 +187,8 @@ The database isn't encrypted separately; it relies on macOS FileVault full-disk 
 - [x] Privacy safeguards (2026-10-28): Claude Code's access rules and backstops, a `fintrack status` without personal data, development on Sandbox only
 - [x] Phase 2 code (2026-10-28): category rules and "Use this category for similar transactions", the Insights page, a date filter on Transactions, made-up demo data for development. Categories on real data are fixed by you in the web app, which is also how the Phase 1 rules are tuned
 - [ ] Phase 3: Claude categories and Ask Fintrack
-- [ ] Account management: adding or removing cards on a connected bank (account selection in update mode), leaving an account out of the figures, reminders before consent expires, CSV import for older history
+- [x] Account settings (2026-11-14): renaming an account, leaving one out of totals
+- [ ] Account management: adding or removing cards on a connected bank (account selection in update mode), reminders before consent expires, CSV import for older history
 - [x] Credit card payments (2026-11-01): card statements (Liabilities) fetched on every sync, statements and due dates on the Accounts page, the cards still to pay on the Overview
 - [x] English as the source language (2026-11-01): the web app comes with a Chinese translation; the command line, logs and API are in English; the docs come in both languages
 - [x] Releases (2026-11-07): version tags publish a GitHub release through CI, and `fintrack update` installs the latest stable release, a given one, or the development version

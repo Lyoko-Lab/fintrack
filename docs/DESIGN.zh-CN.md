@@ -14,7 +14,7 @@
 | **Transactions** | 7 个账户的交易按日期合并成一条流水（中文界面叫「交易流」，代码里叫 Activity，路径 `/activity`）；转账照常显示，加 ⇄ 标记，但不计入收支 |
 | **Insights** | 按日、周、月、年看现金流趋势、支出结构、同期对比和变化来源 |
 | **Ask Fintrack** | 用 Claude 对全部交易做对话式分析 |
-| **Accounts** | 余额、信用额度、信用卡本期账单和还款日、连接状态、重新授权 |
+| **Accounts** | 余额、信用额度、信用卡本期账单和还款日、连接状态、重新授权；给账户改名，把账户排除在统计之外 |
 | **Rules** | 分类规则；你手动改分类时可以一键生成 |
 
 指标口径：
@@ -73,8 +73,8 @@ Plaid API
 | 层 | 表 | 规则 |
 |---|---|---|
 | Raw | `raw_events` | 每个 API 响应的原文，只追加不修改 |
-| Ledger | `items` `accounts` `transactions` `balance_snapshots` `card_statements` `sync_runs` | 清洗后的统一账本 |
-| Enrichment | `categories` `transaction_enrichment` `transaction_overrides` | 自动分类每次同步后全量重算；用户修改单独存放，同步绝不覆盖 |
+| Ledger | `items` `accounts` `transactions` `balance_snapshots` `card_statements` `sync_runs` | 清洗后的统一账本。`card_statements` 保留历史：银行对一张卡的每一份不同的账单报告各占一行，每张卡最新的一份在 `v_card_statements` |
+| Enrichment | `categories` `transaction_enrichment` `transaction_overrides` `account_settings` | 自动分类每次同步后全量重算。用户的决定（对交易的修改、账户的备注名、是否计入统计）单独存放，同步绝不覆盖；`v_accounts` 应用账户设置，所有统计都跳过不计入的账户 |
 | Views | `v_ledger` | Overview、Transactions、Insights、现金流预测和 Ask 都只读这个视图，保证各处口径一致。视图是代码：每次打开数据库时由 `views.sql` 重新创建，迁移只管表和数据 |
 
 约定：
@@ -86,7 +86,7 @@ Plaid API
 - **机密不进数据库**：Plaid access token 和所有 API key 都存在 macOS Keychain 里（service 为 `fintrack`）。
 - **基本量只定义一次**：每天的收入和支出（flows），以及某一天的存款、信用卡欠款和净现金头寸（positions），都定义在 `measures.py` 里，各页面都从这里取。
 - **分类决定收支类型**：每个分类属于 expense、income 或 transfer 之一，`flow_type` 跟随分类。所以用户只需要改分类，比如改成"账户间转账"就等于标记为转账。支出类别里的正数是退款，会冲减支出。
-- **待入账交易正式入账后**：Plaid 会用一笔新的正式交易替换它，用户在原来那笔上的修改会自动沿用到新交易上。
+- **待入账交易正式入账后**：Plaid 会用一笔新的正式交易替换它，用户在原来那笔上的修改会自动沿用到新交易上。银行撤回一笔交易、再用新编号重发时，修改会转到重发的那笔上：同一账户、同样金额和商户、日期相差不超过三天、在撤回后一周内出现。
 
 ## 5. 同步
 
@@ -187,7 +187,8 @@ Claude Code 读到的内容都会发送给 Anthropic，所以开发时只接触�
 - [x] 隐私防护（2026-10-28）：Claude Code 的访问规则和兜底拦截、不含个人信息的 `fintrack status`、开发只连 Sandbox
 - [x] Phase 2 代码（2026-10-28）：分类规则和「以后同样的交易也归入这个分类」、Insights 分析页、交易流按日期范围筛选、开发用的合成演示数据。真实数据上的分类由你在网页上修正，这也是 Phase 1 规则的校准方式
 - [ ] Phase 3：Claude 分类与 Ask Fintrack
-- [ ] 账户管理：给已连接的银行补选或移除卡片（update mode 选卡）、把账户排除在统计之外、授权到期提醒、用 CSV 导入补齐更早的历史
+- [x] 账户设置（2026-11-14）：给账户改名、把账户排除在统计之外
+- [ ] 账户管理：给已连接的银行补选或移除卡片（update mode 选卡）、授权到期提醒、用 CSV 导入补齐更早的历史
 - [x] 信用卡还款提醒（2026-11-01）：同步时取信用卡账单（Liabilities），账户页显示本期账单和还款日，总览列出待还的卡
 - [x] 以英文为源语言（2026-11-01）：网页提供中文翻译；命令行、日志和 API 改用英文；文档提供中英两版
 - [x] 版本发布（2026-11-07）：推送版本标签后由 CI 发布 GitHub Release；`fintrack update` 可安装最新稳定版、指定版本或开发版

@@ -244,11 +244,42 @@ WHERE posted.removed_at IS NULL
 ON CONFLICT (transaction_id) DO NOTHING
 """
 
+# A bank can also withdraw a transaction and send it again under a new id. Its edits move to the
+# replacement: a live transaction on the same account with the same amount and payee, dated within
+# three days, that first arrived within a week of the withdrawal and has no edits of its own. They
+# move rather than copy, so a second look-alike never picks them up too.
+_WITHDRAWN_WITH_EDITS = """
+SELECT gone.id, gone.account_id, gone.amount_cents, gone.transaction_date, gone.removed_at,
+       COALESCE(gone.merchant_name, gone.description, gone.original_description) AS payee
+FROM transaction_overrides o
+JOIN transactions gone ON gone.id = o.transaction_id
+WHERE gone.removed_at IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM transactions posted WHERE posted.pending_external_id = gone.external_id)
+"""
+_REPLACEMENT = """
+SELECT t.id FROM transactions t
+WHERE t.removed_at IS NULL AND t.account_id = :account_id AND t.amount_cents = :amount_cents
+  AND COALESCE(t.merchant_name, t.description, t.original_description) = :payee
+  AND abs(julianday(t.transaction_date) - julianday(:transaction_date)) <= 3
+  AND julianday(t.first_seen_at) BETWEEN julianday(:removed_at) - 1 AND julianday(:removed_at) + 7
+  AND NOT EXISTS (SELECT 1 FROM transaction_overrides edited WHERE edited.transaction_id = t.id)
+ORDER BY abs(julianday(t.transaction_date) - julianday(:transaction_date)), t.id
+LIMIT 1
+"""
+
+
+def _carry_over_edits(conn: sqlite3.Connection) -> None:
+    conn.execute(_CARRY_OVER_EDITS)
+    for gone in conn.execute(_WITHDRAWN_WITH_EDITS).fetchall():
+        replacement = conn.execute(_REPLACEMENT, dict(gone)).fetchone()
+        if replacement is not None:
+            conn.execute("UPDATE transaction_overrides SET transaction_id = ? WHERE transaction_id = ?", (replacement["id"], gone["id"]))
+
 
 def enrich_all(conn: sqlite3.Connection) -> int:
     """Re-derive the category of every live transaction. Returns how many were classified."""
     with transaction(conn):
-        conn.execute(_CARRY_OVER_EDITS)
+        _carry_over_edits(conn)
         kinds = {row["id"]: row["kind"] for row in conn.execute("SELECT id, kind FROM categories")}
         txns = [
             Txn(*row)

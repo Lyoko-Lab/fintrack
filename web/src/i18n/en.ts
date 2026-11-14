@@ -338,6 +338,15 @@ const en = {
     limit: "Credit limit",
     statement: "Statement",
     due: "Due date",
+    rename: "Rename",
+    renameButton: (name: string) => `Rename ${name}`,
+    renameLabel: (name: string) => `New name for ${name}`,
+    cancel: "Cancel",
+    bankName: (name: string) => `The bank calls it ${name}`,
+    inTotals: "In totals",
+    countIn: (name: string) => `Count ${name} in totals`,
+    excludedNote:
+      "Accounts left out of totals don't count toward income, spending, net cash position or the forecast. Their transactions still show.",
   },
   errors: {
     plaidScript: "Couldn't load Plaid Link. Check your internet connection.",

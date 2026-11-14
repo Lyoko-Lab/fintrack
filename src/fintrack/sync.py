@@ -208,7 +208,7 @@ def _apply(
     )
     for statement in parse_card_statements(liabilities.body) if liabilities else []:
         if statement.account_external_id in account_ids:
-            _upsert_card_statement(conn, account_ids[statement.account_external_id], statement, now)
+            _record_card_statement(conn, account_ids[statement.account_external_id], statement, now)
 
     # An empty next_cursor means Plaid had nothing ready yet: keep the old cursor and try again later.
     conn.execute(
@@ -250,20 +250,27 @@ def _upsert_account(conn: sqlite3.Connection, item_id: int, account: AccountReco
     )
 
 
-def _upsert_card_statement(conn: sqlite3.Connection, account_id: int, statement: CardStatementRecord, now: str) -> None:
+_STATEMENT_FIELDS = (
+    "statement_date", "statement_cents", "minimum_cents", "due_date",
+    "last_payment_cents", "last_payment_date", "is_overdue",
+)  # fmt: skip
+
+
+def _record_card_statement(conn: sqlite3.Connection, account_id: int, statement: CardStatementRecord, now: str) -> None:
+    """Add the bank's report to the card's statement history, unless it is the latest one again."""
+    report = {name: getattr(statement, name) for name in _STATEMENT_FIELDS}
+    if report["is_overdue"] is not None:
+        report["is_overdue"] = int(report["is_overdue"])
+    latest = conn.execute("SELECT * FROM card_statements WHERE account_id = ? ORDER BY id DESC LIMIT 1", (account_id,)).fetchone()
+    if latest is not None and all(latest[name] == value for name, value in report.items()):
+        conn.execute("UPDATE card_statements SET updated_at = ? WHERE id = ?", (now, latest["id"]))
+        return
     conn.execute(
-        """
-        INSERT INTO card_statements (account_id, statement_date, statement_cents, minimum_cents, due_date,
-                                     last_payment_cents, last_payment_date, is_overdue, updated_at)
-        VALUES (:account_id, :statement_date, :statement_cents, :minimum_cents, :due_date,
-                :last_payment_cents, :last_payment_date, :is_overdue, :now)
-        ON CONFLICT (account_id) DO UPDATE SET
-            statement_date = excluded.statement_date, statement_cents = excluded.statement_cents,
-            minimum_cents = excluded.minimum_cents, due_date = excluded.due_date,
-            last_payment_cents = excluded.last_payment_cents, last_payment_date = excluded.last_payment_date,
-            is_overdue = excluded.is_overdue, updated_at = excluded.updated_at
+        f"""
+        INSERT INTO card_statements (account_id, {", ".join(_STATEMENT_FIELDS)}, first_seen_at, updated_at)
+        VALUES (:account_id, {", ".join(f":{name}" for name in _STATEMENT_FIELDS)}, :now, :now)
         """,
-        {**asdict(statement), "account_id": account_id, "now": now},
+        {**report, "account_id": account_id, "now": now},
     )
 
 

@@ -9,6 +9,8 @@ the credit cards (what they owe, as a positive number), and net cash position, c
 Balances only exist for now, so an earlier day's position is today's less whatever posted since.
 That goes by posted_date and posted transactions only, as a balance moves when a transaction
 posts; a transfer between two connected accounts cancels out of the net.
+
+Accounts the user left out of totals (account_settings) count in neither.
 """
 
 from __future__ import annotations
@@ -50,7 +52,7 @@ def daily_flows(conn: sqlite3.Connection, start: date, end: date) -> dict[date, 
                COALESCE(SUM(CASE WHEN flow_type = 'income' THEN amount_cents END), 0),
                COALESCE(-SUM(CASE WHEN flow_type = 'expense' THEN amount_cents END), 0)
         FROM v_ledger
-        WHERE transaction_date BETWEEN ? AND ?
+        WHERE transaction_date BETWEEN ? AND ? AND account_excluded = 0
         GROUP BY transaction_date
         """,
         (start.isoformat(), end.isoformat()),
@@ -69,7 +71,8 @@ def balances(conn: sqlite3.Connection) -> tuple[int, int, str | None]:
         SELECT COALESCE(SUM(CASE WHEN type = 'depository' THEN current_cents END), 0),
                COALESCE(SUM(CASE WHEN type = 'credit' THEN current_cents END), 0),
                MAX(balance_as_of)
-        FROM accounts
+        FROM v_accounts
+        WHERE excluded = 0
         """
     ).fetchone()
     return cash, debt, as_of
@@ -85,8 +88,9 @@ def positions(conn: sqlite3.Connection, start: date, today: date) -> list[Positi
             SELECT t.posted_date,
                    SUM(CASE WHEN a.type = 'depository' THEN t.amount_cents ELSE 0 END),
                    SUM(CASE WHEN a.type = 'credit' THEN t.amount_cents ELSE 0 END)
-            FROM transactions t JOIN accounts a ON a.id = t.account_id
-            WHERE t.removed_at IS NULL AND t.pending = 0 AND a.type IN ('depository', 'credit') AND t.posted_date > ?
+            FROM transactions t JOIN v_accounts a ON a.id = t.account_id
+            WHERE t.removed_at IS NULL AND t.pending = 0 AND a.type IN ('depository', 'credit') AND a.excluded = 0
+              AND t.posted_date > ?
             GROUP BY t.posted_date
             """,
             (start.isoformat(),),

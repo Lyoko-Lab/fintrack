@@ -15,7 +15,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
-from . import forecast, insights, items, reports, rules, sync
+from . import account_settings, forecast, insights, items, reports, rules, sync
 from .config import Settings
 from .db import connect, open_db
 from .edits import InvalidEdit, UnknownTransaction, edit_transaction
@@ -47,6 +47,12 @@ class TransactionEdit(BaseModel):
     # Only the fields sent are changed; sending null reverts that field.
     category_id: str | None = None
     note: str | None = None
+
+
+class AccountEdit(BaseModel):
+    # Only the fields sent are changed; a null nickname goes back to the bank's name.
+    nickname: str | None = None
+    excluded: bool | None = None
 
 
 class RuleCondition(BaseModel):
@@ -122,6 +128,8 @@ def create_app(
     app.add_exception_handler(InvalidEdit, error(422))
     app.add_exception_handler(rules.UnknownRule, error(404))
     app.add_exception_handler(rules.InvalidRule, error(422))
+    app.add_exception_handler(account_settings.UnknownAccount, error(404))
+    app.add_exception_handler(account_settings.InvalidSetting, error(422))
 
     @app.exception_handler(items.UnknownItem)
     async def unknown_item(request: Request, exc: items.UnknownItem) -> JSONResponse:
@@ -202,16 +210,12 @@ def create_app(
 
     @app.get("/api/accounts")
     def list_accounts(db: Db) -> list[dict[str, Any]]:
-        rows = db.execute(
-            """
-            SELECT a.id, a.item_id, a.name, a.official_name, a.mask, a.type, a.subtype, a.currency,
-                   a.current_cents, a.available_cents, a.limit_cents, a.balance_as_of,
-                   i.institution_name
-            FROM accounts a JOIN items i ON i.id = a.item_id
-            ORDER BY i.id, a.type != 'depository', a.name
-            """
-        ).fetchall()
-        return [dict(row) for row in rows]
+        return account_settings.accounts(db)
+
+    @app.patch("/api/accounts/{account_id}")
+    def edit_account(account_id: int, body: AccountEdit, db: Db) -> dict[str, Any] | None:
+        account_settings.edit_account(db, account_id, {field: getattr(body, field) for field in body.model_fields_set})
+        return account_settings.account(db, account_id)
 
     @app.get("/api/overview")
     def get_overview(db: Db) -> dict[str, Any]:

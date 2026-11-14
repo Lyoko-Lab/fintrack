@@ -38,7 +38,10 @@ export interface Status {
 export interface Account {
   id: number;
   item_id: number;
-  name: string;
+  name: string; // the user's nickname, else the bank's name
+  bank_name: string;
+  nickname: string | null;
+  excluded: number; // 1: left out of totals and the forecast
   official_name: string | null;
   mask: string | null;
   type: string;
@@ -48,6 +51,11 @@ export interface Account {
   limit_cents: number | null;
   balance_as_of: string | null;
   institution_name: string | null;
+}
+
+export interface AccountEdit {
+  nickname?: string | null; // null: back to the bank's name
+  excluded?: boolean;
 }
 
 export interface Comparison {
@@ -279,6 +287,7 @@ export const api = {
   cardPayments: () => request<CardPayment[]>("/api/card-payments"),
   forecast: () => request<Forecast>("/api/forecast"),
   accounts: () => request<Account[]>("/api/accounts"),
+  editAccount: (id: number, changes: AccountEdit) => patch<Account>(`/api/accounts/${id}`, changes),
   categories: () => request<Category[]>("/api/categories"),
   activity: (filters: ActivityFilters, cursor: Cursor | null, limit = 50) =>
     request<ActivityPage>(`/api/activity${query({ ...filters, ...cursor, limit })}`),

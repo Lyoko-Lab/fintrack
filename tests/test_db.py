@@ -11,6 +11,37 @@ from fintrack import db
 from fintrack.db import open_db
 
 
+def migrations_up_to(last: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Let open_db see only the migrations up to `last`, as an older version of the app would."""
+    folder = tmp_path / f"migrations-{last}"
+    shutil.copytree(Path(db.__file__).parent / "migrations", folder, ignore=shutil.ignore_patterns("__pycache__"))
+    for script in folder.glob("*.sql"):
+        if int(script.name.split("_", 1)[0]) > last:
+            script.unlink()
+    real = db.resources.files
+    monkeypatch.setattr(db.resources, "files", lambda package: folder if package == "fintrack.migrations" else real(package))
+
+
+def test_card_statements_carry_over_into_their_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    with monkeypatch.context() as old_app:
+        migrations_up_to(5, tmp_path, old_app)
+        conn = open_db(tmp_path / "ledger.db")
+        card = add_account(conn, "Card", "credit")
+        conn.execute(
+            """
+            INSERT INTO card_statements (account_id, statement_date, statement_cents, due_date, updated_at)
+            VALUES (?, '2026-10-31', 25000, '2026-11-25', '2026-11-14T06:00:00Z')
+            """,
+            (card,),
+        )
+        conn.close()
+
+    conn = open_db(tmp_path / "ledger.db")
+
+    rows = conn.execute("SELECT account_id, statement_cents, due_date, first_seen_at, updated_at FROM v_card_statements")
+    assert [tuple(row) for row in rows] == [(card, 25000, "2026-11-25", "2026-11-14T06:00:00Z", "2026-11-14T06:00:00Z")]
+
+
 def test_views_are_created_afresh_whenever_the_database_is_opened(tmp_path: Path):
     conn = open_db(tmp_path / "ledger.db")
     conn.execute("DROP VIEW v_ledger")
@@ -21,7 +52,7 @@ def test_views_are_created_afresh_whenever_the_database_is_opened(tmp_path: Path
 def test_later_migrations_run_with_the_views_out_of_the_way(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     migrations = tmp_path / "migrations"
     shutil.copytree(Path(db.__file__).parent / "migrations", migrations, ignore=shutil.ignore_patterns("__pycache__"))
-    (migrations / "0006_look.sql").write_text("CREATE TABLE views_seen AS SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'view';")
+    (migrations / "0099_look.sql").write_text("CREATE TABLE views_seen AS SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'view';")
     real = db.resources.files
     monkeypatch.setattr(db.resources, "files", lambda package: migrations if package == "fintrack.migrations" else real(package))
 
@@ -40,12 +71,13 @@ def test_a_new_database_is_migrated_without_a_backup(tmp_path: Path):
     assert not (tmp_path / "backups").exists()
 
 
-def test_existing_data_is_backed_up_before_a_migration(tmp_path: Path):
-    conn = open_db(tmp_path / "ledger.db")
-    latest = schema_version(conn)
-    add_txn(conn, add_account(conn, "Checking", "depository"), -1234, "2026-10-01", "COFFEE")
-    conn.execute(f"PRAGMA user_version = {latest - 1}")  # as if the newest migration hadn't run yet
-    conn.close()
+def test_existing_data_is_backed_up_before_a_migration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    latest = schema_version(open_db(tmp_path / "current.db"))
+    with monkeypatch.context() as old_app:  # a database from before the newest migration
+        migrations_up_to(latest - 1, tmp_path, old_app)
+        conn = open_db(tmp_path / "ledger.db")
+        add_txn(conn, add_account(conn, "Checking", "depository"), -1234, "2026-10-01", "COFFEE")
+        conn.close()
 
     conn = open_db(tmp_path / "ledger.db")
 

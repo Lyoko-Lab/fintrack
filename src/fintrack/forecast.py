@@ -183,7 +183,7 @@ def _cards(conn: sqlite3.Connection, today: date) -> tuple[dict[int, _Card], int
     statements = {payment["account_id"]: payment for payment in card_payments(conn, today)}
     cards: dict[int, _Card] = {}
     unknown = 0
-    for account in conn.execute("SELECT id, name, mask, current_cents FROM accounts WHERE type = 'credit'"):
+    for account in conn.execute("SELECT id, name, mask, current_cents FROM v_accounts WHERE type = 'credit' AND excluded = 0"):
         name = f"{account['name']} ··{account['mask']}" if account["mask"] else account["name"]
         card = cards[account["id"]] = _Card(account["id"], name, float(account["current_cents"] or 0))
         statement = statements.get(account["id"])
@@ -218,7 +218,7 @@ def forecast(conn: sqlite3.Connection, today: date) -> dict[str, Any]:
         """
         SELECT id, account_id, account_name, account_type, amount_cents, transaction_date, display_name, flow_type
         FROM v_ledger
-        WHERE account_type IN ('depository', 'credit') AND transaction_date > ? AND transaction_date <= ?
+        WHERE account_type IN ('depository', 'credit') AND account_excluded = 0 AND transaction_date > ? AND transaction_date <= ?
           AND (flow_type IN ('income', 'expense')
                -- money moved to an account that isn't connected leaves the position too
                OR (flow_type = 'transfer' AND transfer_peer_id IS NULL AND category_id IS NOT 'transfer.card_payment'

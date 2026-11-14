@@ -129,7 +129,7 @@ def _by_category(conn: sqlite3.Connection, span: Span) -> dict[str, int]:
         """
         SELECT category_id, flow_type, SUM(amount_cents)
         FROM v_ledger
-        WHERE transaction_date BETWEEN ? AND ? AND flow_type IN ('income', 'expense')
+        WHERE transaction_date BETWEEN ? AND ? AND flow_type IN ('income', 'expense') AND account_excluded = 0
         GROUP BY category_id
         """,
         (span.start.isoformat(), span.end.isoformat()),

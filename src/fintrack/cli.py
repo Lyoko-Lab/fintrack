@@ -105,7 +105,7 @@ def _status(args: argparse.Namespace) -> int:
             """
             SELECT a.type, a.subtype, COUNT(t.id) AS transaction_count,
                    MIN(t.transaction_date) AS first_date, MAX(t.transaction_date) AS last_date,
-                   EXISTS (SELECT 1 FROM card_statements s WHERE s.account_id = a.id) AS has_statement
+                   EXISTS (SELECT 1 FROM v_card_statements s WHERE s.account_id = a.id) AS has_statement
             FROM accounts a
             LEFT JOIN transactions t ON t.account_id = a.id AND t.removed_at IS NULL
             WHERE a.item_id = ?

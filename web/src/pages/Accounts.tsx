@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { api, type Account, type CardPayment, type Item, type ItemStatus, type Status } from "../api";
+import { useState, type FormEvent } from "react";
+import { api, type Account, type AccountEdit, type CardPayment, type Item, type ItemStatus, type Status } from "../api";
 import { DueState } from "../components/DueState";
 import { money, shortDay, whenLabel } from "../format";
 import { useI18n } from "../i18n";
 import { openPlaidLink } from "../plaidLink";
+import { invalidateLedger } from "../queries";
 import { expectSync } from "../syncPolling";
 
 const PLAID_TRIAL_ITEMS = 10;
@@ -24,6 +25,19 @@ export function AccountsPage({ status }: { status: Status | undefined }) {
     void queryClient.invalidateQueries({ queryKey: ["status"] });
   };
   const sync = useMutation({ mutationFn: api.startSync, onSuccess: refreshStatus, onError: (e) => setProblem(e.message) });
+  // A nickname shows everywhere, and leaving an account out changes every total, so all of it is stale.
+  const settings = useMutation({
+    mutationFn: ({ id, changes }: { id: number; changes: AccountEdit }) => api.editAccount(id, changes),
+    onSuccess: () => invalidateLedger(queryClient),
+    onError: (e) => setProblem(e.message),
+  });
+  const editAccount = (id: number, changes: AccountEdit) => {
+    setProblem(null);
+    return settings.mutateAsync({ id, changes }).then(
+      () => true,
+      () => false,
+    );
+  };
   const link = useMutation({
     mutationFn: (itemId?: number) => openPlaidLink(itemId),
     onSuccess: (connected) => connected && refreshStatus(),
@@ -98,6 +112,8 @@ export function AccountsPage({ status }: { status: Status | undefined }) {
           item={item}
           accounts={accounts.data?.filter((a) => a.item_id === item.id) ?? []}
           payments={payments}
+          onEdit={editAccount}
+          saving={settings.isPending}
           onReconnect={() => {
             setProblem(null);
             link.mutate(item.id);
@@ -106,6 +122,8 @@ export function AccountsPage({ status }: { status: Status | undefined }) {
         />
       ))}
 
+      {accounts.data?.some((account) => account.excluded) && <p className="footnote">{t.accounts.excludedNote}</p>}
+
       {status?.env === "production" && (
         <p className="footnote">{t.accounts.trial(status.items.length, PLAID_TRIAL_ITEMS)}</p>
       )}
@@ -113,16 +131,68 @@ export function AccountsPage({ status }: { status: Status | undefined }) {
   );
 }
 
+/** An account's name, which the user can replace with their own; empty brings back the bank's. */
+function AccountName({ account, onRename }: { account: Account; onRename(nickname: string | null): Promise<boolean> }) {
+  const { t } = useI18n();
+  const [draft, setDraft] = useState<string | null>(null); // null: not renaming
+  const mask = account.mask && <span className="muted">··{account.mask}</span>;
+  if (draft !== null) {
+    const submit = (event: FormEvent) => {
+      event.preventDefault();
+      void onRename(draft.trim() || null).then((saved) => saved && setDraft(null));
+    };
+    return (
+      <form className="rename" onSubmit={submit}>
+        <input
+          aria-label={t.accounts.renameLabel(account.bank_name)}
+          autoFocus
+          maxLength={60}
+          placeholder={account.bank_name}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => event.key === "Escape" && setDraft(null)}
+        />
+        <button type="submit" className="text-button">
+          {t.common.save}
+        </button>
+        <button type="button" className="text-button" onClick={() => setDraft(null)}>
+          {t.accounts.cancel}
+        </button>
+      </form>
+    );
+  }
+  return (
+    <span className="cell-stack">
+      <span>
+        {account.name} {mask}
+        <button
+          type="button"
+          className="text-button rename-button"
+          aria-label={t.accounts.renameButton(account.name)}
+          onClick={() => setDraft(account.nickname ?? "")}
+        >
+          {t.accounts.rename}
+        </button>
+      </span>
+      {account.nickname && <small className="muted">{t.accounts.bankName(account.bank_name)}</small>}
+    </span>
+  );
+}
+
 function Institution({
   item,
   accounts,
   payments,
+  onEdit,
+  saving,
   onReconnect,
   busy,
 }: {
   item: Item;
   accounts: Account[];
   payments: Map<number, CardPayment>; // by account id, for credit cards with a statement
+  onEdit(id: number, changes: AccountEdit): Promise<boolean>;
+  saving: boolean;
   onReconnect(): void;
   busy: boolean;
 }) {
@@ -165,15 +235,16 @@ function Institution({
                   <th>{t.accounts.due}</th>
                 </>
               )}
+              <th>{t.accounts.inTotals}</th>
             </tr>
           </thead>
           <tbody>
             {accounts.map((account) => {
               const payment = payments.get(account.id);
               return (
-                <tr key={account.id}>
+                <tr key={account.id} className={account.excluded ? "excluded" : undefined}>
                   <td>
-                    {account.name} {account.mask && <span className="muted">··{account.mask}</span>}
+                    <AccountName account={account} onRename={(nickname) => onEdit(account.id, { nickname })} />
                   </td>
                   <td>{t.accounts.types[account.type] ?? account.type}</td>
                   <td className="num">{money(account.current_cents)}</td>
@@ -204,6 +275,15 @@ function Institution({
                       </td>
                     </>
                   )}
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={!account.excluded}
+                      disabled={saving}
+                      aria-label={t.accounts.countIn(account.name)}
+                      onChange={(event) => void onEdit(account.id, { excluded: !event.target.checked })}
+                    />
+                  </td>
                 </tr>
               );
             })}

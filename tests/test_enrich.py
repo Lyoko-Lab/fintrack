@@ -139,3 +139,24 @@ def test_enrich_all_classifies_and_keeps_edits_when_a_pending_transaction_posts(
     assert ledger[posted]["note"] == "team coffee"
     paid = next(row for row in ledger.values() if row["amount_cents"] == -184520)
     assert (paid["peer_account_name"], paid["peer_account_mask"]) == ("Sapphire Preferred", "4321")
+
+
+def test_edits_follow_a_transaction_the_bank_sends_again_under_a_new_id(db: sqlite3.Connection):
+    card = add_account(db, "Sapphire Preferred", "credit")
+    first = add_txn(db, card, -575, "2026-11-10", "BLUE BOTTLE COFFEE", pfc="FOOD_AND_DRINK_COFFEE")
+    twin = add_txn(db, card, -575, "2026-11-10", "BLUE BOTTLE COFFEE", pfc="FOOD_AND_DRINK_COFFEE")  # a second cup
+    db.execute("INSERT INTO transaction_overrides VALUES (?, 'dining.other', 'team coffee', '2026-11-10T09:00:00Z')", (first,))
+    # The bank withdraws the first and sends it again, a day later and under a new id, in the next sync.
+    db.execute("UPDATE transactions SET removed_at = '2026-11-12T06:00:00Z' WHERE id = ?", (first,))
+    again = add_txn(db, card, -575, "2026-11-11", "BLUE BOTTLE COFFEE", pfc="FOOD_AND_DRINK_COFFEE")
+    db.execute("UPDATE transactions SET first_seen_at = '2026-11-12T06:00:00Z' WHERE id = ?", (again,))
+    unrelated = add_txn(db, card, -575, "2026-11-11", "STARBUCKS", pfc="FOOD_AND_DRINK_COFFEE")
+    db.execute("UPDATE transactions SET first_seen_at = '2026-11-12T06:00:00Z' WHERE id = ?", (unrelated,))
+
+    enrich_all(db)
+    enrich_all(db)  # and again: the edits don't spread to look-alikes
+
+    ledger = {row["id"]: row for row in db.execute("SELECT id, category_id, note FROM v_ledger")}
+    assert (ledger[again]["category_id"], ledger[again]["note"]) == ("dining.other", "team coffee")
+    assert (ledger[twin]["category_id"], ledger[twin]["note"]) == ("dining.coffee", None)
+    assert (ledger[unrelated]["category_id"], ledger[unrelated]["note"]) == ("dining.coffee", None)
