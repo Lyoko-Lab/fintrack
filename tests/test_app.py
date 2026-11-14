@@ -130,3 +130,9 @@ def test_the_react_app_is_served_for_client_side_routes(settings: Settings, plai
 
 def test_card_payments_endpoint(settings: Settings, plaid: FakePlaid):
     assert api_for(settings, plaid.client).get("/api/card-payments").json() == []
+
+
+def test_forecast_endpoint(settings: Settings, plaid: FakePlaid):
+    result = api_for(settings, plaid.client).get("/api/forecast").json()
+    assert (len(result["history"]), len(result["forecast"])) == (61, 60)
+    assert result["recurring"] == [] and result["events"] == []

@@ -117,6 +117,34 @@ const en = {
     recent: "Recent transactions",
     viewAll: "View all →",
   },
+  forecast: {
+    title: "Cash flow forecast",
+    view: "Show",
+    views: { cash: "Cash in bank", net: "Net cash position" },
+    today: "Today",
+    vsToday: "today",
+    projected: (day: string) => `Forecast for ${day}`,
+    lowest: "Lowest point ahead",
+    forecastLabel: "Forecast",
+    chartLabel: (view: string, now: string, end: string, day: string) => `${view}: ${now} today, forecast ${end} on ${day}`,
+    cardPayment: (card: string) => `Payment to ${card}`,
+    caption: {
+      net: "The gray dashed line is the forecast: recurring income and bills on their next dates, plus everyday spending. Card payments don't move net cash position, since what the cards owe is already subtracted.",
+      cash: "The gray dashed line is the forecast: recurring income and bills on their next dates, everyday spending, and each card's statement paid in full on its due date.",
+    },
+    howEstimated: "How the forecast is made",
+    everyday: (amount: string) =>
+      `Everyday spending: about ${amount} a day, the typical rate of the last 13 weeks, leaving out the recurring items below.`,
+    cards:
+      "Card payments, as on the payment calendar: what is left of each statement is paid in full on its due date, and the next statement, the charges since, a month later.",
+    noDueDate: (n: number) =>
+      `${plural(n, "card")} without a due date from the bank: ${n === 1 ? "its payments aren't" : "their payments aren't"} in this line.`,
+    oneOffs: "Income that doesn't recur, such as a tax refund or a bonus, isn't included, so the forecast leans low.",
+    recurring: "Recurring money in and out",
+    noRecurring: "No recurring transactions found yet: it takes at least three at a steady rhythm.",
+    columns: { name: "Name", account: "Account", every: "How often", amount: "Typical amount", next: "Next" },
+    cadence: { weekly: "Every week", biweekly: "Every 2 weeks", semimonthly: "Twice a month", monthly: "Every month" },
+  },
   payments: {
     calendar: "Payment calendar",
     paid: "Paid",

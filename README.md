@@ -2,7 +2,7 @@
 
 English | [简体中文](README.zh-CN.md)
 
-A personal finance system that runs on your Mac. Every day it syncs your bank transactions into one ledger, tells income, spending and transfers apart, and shows it all in a local web app: headline numbers, a transaction feed, insights and credit card due dates. The design is in [docs/DESIGN.md](docs/DESIGN.md).
+A personal finance system that runs on your Mac. Every day it syncs your bank transactions into one ledger, tells income, spending and transfers apart, and shows it all in a local web app: headline numbers, a transaction feed, insights, credit card due dates and a cash flow forecast. The design is in [docs/DESIGN.md](docs/DESIGN.md).
 
 Status: **Phase 2**. Automatic sync, transfer matching, automatic categories plus your own category rules, and credit card statements. The web app has five pages (Overview, Transactions, Insights, Rules and Accounts), in English or Chinese.
 

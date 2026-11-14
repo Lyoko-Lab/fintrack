@@ -6,6 +6,8 @@ What changed in each release. Versions follow [semantic versioning](https://semv
 
 ## Unreleased
 
+- A cash flow forecast on the Overview: the last two months of the cash in the bank, or of net cash position, continued two months ahead as a gray dashed line. It is built from your recurring income and bills (found automatically), everyday spending, and, for the cash in the bank, each card paid in full on its due date, as on the payment calendar. Hover or use the arrow keys to see a day's value and what is expected on it, and open "How the forecast is made" for the recurring items it found.
+
 ## 0.2.0 - 2026-11-07
 
 - `fintrack update` goes to the latest stable release by default. `fintrack update 0.2.0` goes to a given release, and `fintrack update --dev` follows the latest code on GitHub. It won't move to a version older than your database's last migration.

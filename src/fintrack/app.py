@@ -15,7 +15,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
-from . import insights, items, reports, rules, sync
+from . import forecast, insights, items, reports, rules, sync
 from .config import Settings
 from .db import connect, open_db
 from .edits import InvalidEdit, UnknownTransaction, edit_transaction
@@ -216,6 +216,10 @@ def create_app(
     @app.get("/api/overview")
     def get_overview(db: Db) -> dict[str, Any]:
         return reports.overview(db, date.today())
+
+    @app.get("/api/forecast")
+    def get_forecast(db: Db) -> dict[str, Any]:
+        return forecast.forecast(db, date.today())
 
     @app.get("/api/card-payments")
     def get_card_payments(db: Db) -> list[dict[str, Any]]:

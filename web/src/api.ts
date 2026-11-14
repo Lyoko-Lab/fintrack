@@ -74,6 +74,43 @@ export interface CardPayment {
   state: "due" | "overdue" | "paid";
 }
 
+/** One day of the cash flow forecast's line: net cash position, and the cash in the bank alone. */
+export interface BalancePoint {
+  date: string;
+  net: number;
+  cash: number;
+}
+
+/** Something the forecast expects on a day: recurring money in or out, or a card payment from the bank. */
+export interface ForecastEvent {
+  date: string;
+  kind: "in" | "out" | "card";
+  name: string;
+  amount: number; // signed
+  account_type: "depository" | "credit"; // where the money moves; card payments leave the bank
+}
+
+export interface RecurringSeries {
+  name: string;
+  direction: "in" | "out";
+  cadence: "weekly" | "biweekly" | "semimonthly" | "monthly";
+  amount: number; // signed, the typical recent amount
+  next_date: string;
+  account_name: string;
+  account_type: "depository" | "credit";
+}
+
+export interface Forecast {
+  today: string;
+  as_of: string | null;
+  history: BalancePoint[]; // the last 60 days, through today
+  forecast: BalancePoint[]; // the next 60 days
+  events: ForecastEvent[];
+  recurring: RecurringSeries[];
+  daily_spending: number; // everyday spending per day, recurring items aside
+  cards_without_due_date: number; // their payments can't be placed
+}
+
 export interface Period {
   start: string;
   end: string;
@@ -240,6 +277,7 @@ export const api = {
   status: () => request<Status>("/api/status"),
   overview: () => request<Overview>("/api/overview"),
   cardPayments: () => request<CardPayment[]>("/api/card-payments"),
+  forecast: () => request<Forecast>("/api/forecast"),
   accounts: () => request<Account[]>("/api/accounts"),
   categories: () => request<Category[]>("/api/categories"),
   activity: (filters: ActivityFilters, cursor: Cursor | null, limit = 50) =>

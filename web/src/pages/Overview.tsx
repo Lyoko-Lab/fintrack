@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, type LedgerRow, type Status } from "../api";
+import { CashFlowForecast } from "../components/CashFlowForecast";
 import { PaymentCalendar } from "../components/PaymentCalendar";
 import { StatTile } from "../components/StatTile";
 import { TransactionList } from "../components/TransactionList";
@@ -103,6 +104,8 @@ export function OverviewPage({ status, onSelect }: { status: Status | undefined;
           [0, 1, 2].map((i) => <div key={i} className="stat-tile skeleton" aria-hidden="true" />)
         )}
       </div>
+
+      <CashFlowForecast />
 
       <UpcomingPayments />
 
