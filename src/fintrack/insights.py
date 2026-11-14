@@ -4,7 +4,7 @@ Periods are calendar days, Monday-to-Sunday weeks, months and years. A period st
 running is compared with the same stretch of earlier periods (October 1-28 against
 September 1-28, clamped at month end); a finished period is compared in full. The
 comparison is the period before, the same dates a year earlier, or the average of the
-three periods before. Income and spending are defined as on Overview (reports.py), so
+three periods before. Income and spending come from measures.py, as on the Overview, so
 the numbers agree across pages.
 """
 
@@ -15,6 +15,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
+
+from .measures import Flow, daily_flows
 
 GRANULARITIES = ("day", "week", "month", "year")
 COMPARISONS = ("previous", "year", "average")
@@ -89,32 +91,10 @@ def comparison_spans(focus: Span, granularity: str, comparison: str) -> list[Spa
     return [_same_stretch(focus, granularity, shift(focus.start, granularity, -k)) for k in range(1, count + 1)]
 
 
-def _daily(conn: sqlite3.Connection, start: date, end: date) -> dict[str, tuple[int, int]]:
-    """Income and spending per day, by Overview's definitions."""
-    rows = conn.execute(
-        """
-        SELECT transaction_date,
-               COALESCE(SUM(CASE WHEN flow_type = 'income' THEN amount_cents END), 0),
-               COALESCE(-SUM(CASE WHEN flow_type = 'expense' THEN amount_cents END), 0)
-        FROM v_ledger
-        WHERE transaction_date BETWEEN ? AND ?
-        GROUP BY transaction_date
-        """,
-        (start.isoformat(), end.isoformat()),
-    ).fetchall()
-    return {row[0]: (row[1], row[2]) for row in rows}
-
-
-def _totals(daily: dict[str, tuple[int, int]], spans: list[Span]) -> dict[str, int]:
+def _totals(daily: dict[date, Flow], spans: list[Span]) -> dict[str, int]:
     """Income, spending and net over `spans`, averaged when there are several."""
-    income = spending = 0
-    for span in spans:
-        first, last = span.start.isoformat(), span.end.isoformat()
-        for day, (day_income, day_spending) in daily.items():
-            if first <= day <= last:
-                income += day_income
-                spending += day_spending
-    income, spending = round(income / len(spans)), round(spending / len(spans))
+    total = sum((flow for day, flow in daily.items() for span in spans if span.start <= day <= span.end), Flow())
+    income, spending = round(total.income / len(spans)), round(total.spending / len(spans))
     return {"income": income, "spending": spending, "net": income - spending}
 
 
@@ -133,7 +113,7 @@ def trend(conn: sqlite3.Connection, granularity: str, today: date) -> dict[str, 
         starts = [shift(current, granularity, -k) for k in range(TREND_PERIODS[granularity] - 1, -1, -1)]
     # Periods that ended before the first transaction say nothing, so leave them out.
     starts = [start for start in starts if first is None or period_end(start, granularity) >= first]
-    daily = _daily(conn, starts[0], today) if starts else {}
+    daily = daily_flows(conn, starts[0], today) if starts else {}
     periods = []
     for start in starts:
         span = focus_span(start, granularity, today)
@@ -161,7 +141,7 @@ def breakdown(conn: sqlite3.Connection, granularity: str, start: date, compariso
     """One period against its comparison: totals, plus spending and income by category group."""
     focus = focus_span(period_start(min(start, today), granularity), granularity, today)
     spans = comparison_spans(focus, granularity, comparison)
-    daily = _daily(conn, min(span.start for span in spans), focus.end)
+    daily = daily_flows(conn, min(span.start for span in spans), focus.end)
 
     current = _by_category(conn, focus)
     earlier = [_by_category(conn, span) for span in spans]

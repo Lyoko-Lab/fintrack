@@ -1,12 +1,34 @@
 from __future__ import annotations
 
+import shutil
 import sqlite3
 from pathlib import Path
 
+import pytest
 from ledger_fakes import add_account, add_txn
 
 from fintrack import db
 from fintrack.db import open_db
+
+
+def test_views_are_created_afresh_whenever_the_database_is_opened(tmp_path: Path):
+    conn = open_db(tmp_path / "ledger.db")
+    conn.execute("DROP VIEW v_ledger")
+    conn.close()
+    assert open_db(tmp_path / "ledger.db").execute("SELECT COUNT(*) FROM v_ledger").fetchone()[0] == 0
+
+
+def test_later_migrations_run_with_the_views_out_of_the_way(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    migrations = tmp_path / "migrations"
+    shutil.copytree(Path(db.__file__).parent / "migrations", migrations, ignore=shutil.ignore_patterns("__pycache__"))
+    (migrations / "0006_look.sql").write_text("CREATE TABLE views_seen AS SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'view';")
+    real = db.resources.files
+    monkeypatch.setattr(db.resources, "files", lambda package: migrations if package == "fintrack.migrations" else real(package))
+
+    conn = open_db(tmp_path / "ledger.db")
+
+    assert conn.execute("SELECT n FROM views_seen").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM v_ledger").fetchone()[0] == 0  # and back afterwards
 
 
 def schema_version(conn: sqlite3.Connection) -> int:

@@ -13,7 +13,7 @@ Today's balances are carried forward day by day with what the last six months sh
   the cash in the bank but not net cash position, which already subtracts what the cards owe.
 
 Income that doesn't recur, like a tax refund or a bonus, isn't projected, so the forecast leans low.
-The past part of the chart is worked backwards from today's balances, as on the Overview.
+The past part of the chart is the positions of measures.py, as on the Overview.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
 
+from .measures import balances, positions
 from .reports import card_payments
 
 HISTORY_DAYS = 60
@@ -208,32 +209,9 @@ def _cards(conn: sqlite3.Connection, today: date) -> tuple[dict[int, _Card], int
 
 
 def forecast(conn: sqlite3.Connection, today: date) -> dict[str, Any]:
-    accounts = conn.execute("SELECT id, type, current_cents, balance_as_of FROM accounts WHERE type IN ('depository', 'credit')").fetchall()
-    cash_today = sum(a["current_cents"] or 0 for a in accounts if a["type"] == "depository")
-    debt_today = sum(a["current_cents"] or 0 for a in accounts if a["type"] == "credit")
-    as_of = max((a["balance_as_of"] for a in accounts if a["balance_as_of"]), default=None)
-
-    # The past: today's position less whatever posted after each day (see reports.overview).
-    start = today - timedelta(days=HISTORY_DAYS)
-    moved: dict[str, tuple[int, int]] = {}
-    for row in conn.execute(
-        """
-        SELECT t.posted_date, SUM(t.amount_cents) AS net, SUM(CASE WHEN a.type = 'depository' THEN t.amount_cents ELSE 0 END) AS cash
-        FROM transactions t JOIN accounts a ON a.id = t.account_id
-        WHERE t.removed_at IS NULL AND t.pending = 0 AND a.type IN ('depository', 'credit') AND t.posted_date > ?
-        GROUP BY t.posted_date
-        """,
-        (start.isoformat(),),
-    ):
-        moved[row["posted_date"]] = (row["net"], row["cash"])
-    history = []
-    net, cash = cash_today - debt_today, cash_today
-    for offset in range(HISTORY_DAYS + 1):
-        day = today - timedelta(days=offset)
-        history.append({"date": day.isoformat(), "net": net, "cash": cash})
-        later_net, later_cash = moved.get(day.isoformat(), (0, 0))
-        net, cash = net - later_net, cash - later_cash
-    history.reverse()
+    cash_today, _, as_of = balances(conn)
+    past = positions(conn, today - timedelta(days=HISTORY_DAYS), today)
+    history = [{"date": p.day.isoformat(), "net": p.net, "cash": p.cash} for p in past]
 
     # What recurs, and the everyday spending around it.
     rows = conn.execute(

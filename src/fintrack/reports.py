@@ -1,6 +1,7 @@
 """Read models for the UI: Overview metrics, the Activity feed, and the category list.
 
-Everything reads v_ledger, so the numbers here are the same ones Ask will see later.
+Everything reads v_ledger, so the numbers here are the same ones Ask will see later; income,
+spending and net cash position come from measures.py, as on every other page.
 """
 
 from __future__ import annotations
@@ -9,23 +10,12 @@ import sqlite3
 from datetime import date, timedelta
 from typing import Any
 
+from .measures import balances, positions, total_flow
+
 
 def same_day_last_month(day: date) -> date:
     last_of_previous = day.replace(day=1) - timedelta(days=1)
     return last_of_previous.replace(day=min(day.day, last_of_previous.day))
-
-
-def _income_and_spending(conn: sqlite3.Connection, start: date, end: date) -> tuple[int, int]:
-    row = conn.execute(
-        """
-        SELECT COALESCE(SUM(CASE WHEN flow_type = 'income' THEN amount_cents END), 0),
-               COALESCE(-SUM(CASE WHEN flow_type = 'expense' THEN amount_cents END), 0)
-        FROM v_ledger
-        WHERE transaction_date BETWEEN ? AND ?
-        """,
-        (start.isoformat(), end.isoformat()),
-    ).fetchone()
-    return row[0], row[1]
 
 
 def overview(conn: sqlite3.Connection, today: date) -> dict[str, Any]:
@@ -33,42 +23,18 @@ def overview(conn: sqlite3.Connection, today: date) -> dict[str, Any]:
     start = today.replace(day=1)
     previous_end = same_day_last_month(today)
     previous_start = previous_end.replace(day=1)
-    income, spending = _income_and_spending(conn, start, today)
-    previous_income, previous_spending = _income_and_spending(conn, previous_start, previous_end)
-
-    cash, debt, as_of = conn.execute(
-        """
-        SELECT COALESCE(SUM(CASE WHEN type = 'depository' THEN current_cents END), 0),
-               COALESCE(SUM(CASE WHEN type = 'credit' THEN current_cents END), 0),
-               MAX(balance_as_of)
-        FROM accounts
-        """
-    ).fetchone()
-    # Balances only exist for "now", but every posted transaction moved one of them, so the
-    # position at an earlier date is today's minus whatever posted since. Transfers between
-    # two tracked accounts cancel out, as they should.
-    posted_since = conn.execute(
-        """
-        SELECT COALESCE(SUM(t.amount_cents), 0)
-        FROM transactions t JOIN accounts a ON a.id = t.account_id
-        WHERE t.removed_at IS NULL AND t.pending = 0 AND a.type IN ('depository', 'credit') AND t.posted_date > ?
-        """,
-        (previous_end.isoformat(),),
-    ).fetchone()[0]
+    flow, previous_flow = total_flow(conn, start, today), total_flow(conn, previous_start, previous_end)
+    series = positions(conn, previous_end, today)
+    then, now = series[0], series[-1]
+    _, _, as_of = balances(conn)
 
     return {
         "today": today.isoformat(),
         "period": {"start": start.isoformat(), "end": today.isoformat()},
         "previous_period": {"start": previous_start.isoformat(), "end": previous_end.isoformat()},
-        "income": {"current": income, "previous": previous_income},
-        "spending": {"current": spending, "previous": previous_spending},
-        "net_cash": {
-            "current": cash - debt,
-            "previous": cash - debt - posted_since,
-            "cash": cash,
-            "debt": debt,
-            "as_of": as_of,
-        },
+        "income": {"current": flow.income, "previous": previous_flow.income},
+        "spending": {"current": flow.spending, "previous": previous_flow.spending},
+        "net_cash": {"current": now.net, "previous": then.net, "cash": now.cash, "debt": now.debt, "as_of": as_of},
     }
 
 

@@ -75,7 +75,7 @@ Plaid API
 | Raw | `raw_events` | Every API response as received, append-only |
 | Ledger | `items` `accounts` `transactions` `balance_snapshots` `card_statements` `sync_runs` | The cleaned-up, unified ledger |
 | Enrichment | `categories` `transaction_enrichment` `transaction_overrides` | Automatic categories are recomputed in full after every sync; the user's edits are kept apart, and a sync never overwrites them |
-| Views | `v_ledger` | Overview, Transactions, Insights and Ask all read only this view, so every page counts the same way |
+| Views | `v_ledger` | Overview, Transactions, Insights, the forecast and Ask all read only this view, so every page counts the same way. Views are code: `views.sql` creates them afresh whenever the database is opened, and migrations only hold tables and data |
 
 Conventions:
 
@@ -84,6 +84,7 @@ Conventions:
 - **Time formats**: timestamps are UTC ISO-8601 and dates `YYYY-MM-DD`; balance snapshots go by local date, one row per account per day.
 - **No hard deletes**: a transaction Plaid withdraws (for example a pending one that has posted) only gets `removed_at`.
 - **No secrets in the database**: the Plaid access tokens and all API keys are in the macOS Keychain (service `fintrack`).
+- **One definition of the basic quantities**: income and spending per day (flows) and cash, card debt and net cash position on a day (positions) are defined in `measures.py`, and every page that shows them asks there.
 - **The category decides the flow type**: every category is expense, income or transfer, and `flow_type` follows it. So the user only ever changes the category; changing it to Between accounts, say, marks the transaction as a transfer. A positive amount in a spending category is a refund and offsets spending.
 - **When a pending transaction posts**: Plaid replaces it with a new, posted transaction, and the user's edits on the pending one carry over to it.
 

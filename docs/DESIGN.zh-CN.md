@@ -75,7 +75,7 @@ Plaid API
 | Raw | `raw_events` | 每个 API 响应的原文，只追加不修改 |
 | Ledger | `items` `accounts` `transactions` `balance_snapshots` `card_statements` `sync_runs` | 清洗后的统一账本 |
 | Enrichment | `categories` `transaction_enrichment` `transaction_overrides` | 自动分类每次同步后全量重算；用户修改单独存放，同步绝不覆盖 |
-| Views | `v_ledger` | Overview、Transactions、Insights、Ask 都只读这个视图，保证各处口径一致 |
+| Views | `v_ledger` | Overview、Transactions、Insights、现金流预测和 Ask 都只读这个视图，保证各处口径一致。视图是代码：每次打开数据库时由 `views.sql` 重新创建，迁移只管表和数据 |
 
 约定：
 
@@ -84,6 +84,7 @@ Plaid API
 - **时间格式**：时间戳用 UTC ISO-8601，日期用 `YYYY-MM-DD`；余额快照按本地日期，每个账户每天一行。
 - **不硬删除**：Plaid 撤回的交易（例如 pending 交易正式入账后）只记 `removed_at`。
 - **机密不进数据库**：Plaid access token 和所有 API key 都存在 macOS Keychain 里（service 为 `fintrack`）。
+- **基本量只定义一次**：每天的收入和支出（flows），以及某一天的存款、信用卡欠款和净现金头寸（positions），都定义在 `measures.py` 里，各页面都从这里取。
 - **分类决定收支类型**：每个分类属于 expense、income 或 transfer 之一，`flow_type` 跟随分类。所以用户只需要改分类，比如改成"账户间转账"就等于标记为转账。支出类别里的正数是退款，会冲减支出。
 - **待入账交易正式入账后**：Plaid 会用一笔新的正式交易替换它，用户在原来那笔上的修改会自动沿用到新交易上。
 

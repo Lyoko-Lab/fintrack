@@ -1,8 +1,9 @@
 """SQLite connections and schema migrations.
 
-The schema lives in numbered SQL files under migrations/, applied in order and
+The tables live in numbered SQL files under migrations/, applied in order and
 tracked with PRAGMA user_version. Before migrating a database that already holds
-data, a copy goes to backups/ beside it.
+data, a copy goes to backups/ beside it. The views are code: views.sql creates
+them afresh every time a database is opened.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from importlib import resources
 from pathlib import Path
 
 BACKUPS_KEPT = 5
+LAST_MIGRATION_WITH_VIEWS = 5  # later migrations leave views to views.sql
 
 
 def connect(path: Path) -> sqlite3.Connection:
@@ -49,7 +51,13 @@ def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
 
 
 def migrate(conn: sqlite3.Connection) -> int:
-    """Apply pending migrations and return the resulting schema version."""
+    """Apply pending migrations, then create the views afresh; return the resulting schema version."""
+    version = _apply_migrations(conn)
+    conn.executescript(f"BEGIN;\n{resources.files('fintrack').joinpath('views.sql').read_text()}\nCOMMIT;")
+    return version
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> int:
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     scripts = sorted(
         (f for f in resources.files("fintrack.migrations").iterdir() if f.name.endswith(".sql")),
@@ -60,8 +68,13 @@ def migrate(conn: sqlite3.Connection) -> int:
         backup(conn, version)
     for script in pending:
         target = int(script.name.split("_", 1)[0])
+        # SQLite won't change a column a view uses, and views.sql recreates them all afterwards, so a
+        # migration runs with them out of the way. The early ones still manage their own views.
+        drops = "" if target <= LAST_MIGRATION_WITH_VIEWS else "".join(
+            f"DROP VIEW {name};\n" for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'view'")
+        )
         try:
-            conn.executescript(f"BEGIN;\n{script.read_text()}\nPRAGMA user_version = {target};\nCOMMIT;")
+            conn.executescript(f"BEGIN;\n{drops}{script.read_text()}\nPRAGMA user_version = {target};\nCOMMIT;")
         except BaseException:
             if conn.in_transaction:
                 conn.execute("ROLLBACK")
