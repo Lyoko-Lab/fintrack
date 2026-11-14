@@ -6,6 +6,8 @@ What changed in each release. Versions follow [semantic versioning](https://semv
 
 ## Unreleased
 
+## 0.3.0 - 2026-11-14
+
 - A cash flow forecast on the Overview: the last two months of the cash in the bank, or of net cash position, continued two months ahead as a gray dashed line. It is built from your recurring income and bills (found automatically), everyday spending, and, for the cash in the bank, each card paid in full on its due date, as on the payment calendar. Hover or use the arrow keys to see a day's value and what is expected on it, and open "How the forecast is made" for the recurring items it found.
 
 ## 0.2.0 - 2026-11-07
